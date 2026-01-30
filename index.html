@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Overrun Lite - Daily Tasks</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer"></div>
+    <header class="topbar">
+      <div>
+        <p class="logo">Overrun Lite</p>
+        <p class="tagline">Simple daily schedule planning</p>
+      </div>
+      <div class="summary-stack">
+        <div class="summary" id="total-time">0h 0m planned</div>
+        <div class="summary" id="done-time">0h 0m done</div>
+        <div class="summary timer-summary">
+          <span>Day timer</span>
+          <span id="day-timer">08:00:00</span>
+          <button id="toggle-day" class="ghost">Start day</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>Backlog</h2>
+        <p class="helper">Drag tasks back into today when you are ready.</p>
+        <div id="backlog-list" class="task-list"></div>
+      </section>
+
+      <section class="calendar">
+        <div class="calendar-header">
+          <div>
+            <h2>Day view</h2>
+            <p class="helper">Drag blocks to resize in 5-minute steps.</p>
+          </div>
+          <div class="calendar-actions">
+            <button id="add-task" class="primary">Add task</button>
+            <button id="add-meeting" class="ghost">Add meeting</button>
+          </div>
+        </div>
+        <div class="calendar-grid">
+          <div class="time-labels">
+            <span>08:00</span>
+            <span>09:00</span>
+            <span>10:00</span>
+            <span>11:00</span>
+            <span>12:00</span>
+            <span>13:00</span>
+            <span>14:00</span>
+            <span>15:00</span>
+            <span>16:00</span>
+            <span>17:00</span>
+            <span>18:00</span>
+          </div>
+          <div class="calendar-day">
+            <div class="grid-lines"></div>
+            <div id="calendar-blocks" class="calendar-blocks"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-actions">
+      <button id="save-day" class="primary">Save the day</button>
+      <button id="export-backlog" class="ghost">Export backlog</button>
+      <button id="import-backlog" class="ghost">Import backlog</button>
+      <input type="file" id="backlog-file" accept="application/json" hidden />
+    </footer>
+
+    <template id="backlog-template">
+      <div class="task-card backlog">
+        <div>
+          <p class="task-title"></p>
+          <p class="task-time"></p>
+        </div>
+        <div class="task-actions">
+          <button data-action="pick" class="primary">Pick up</button>
+        </div>
+      </div>
+    </template>
+
+    <script src="app.js"></script>
+  </body>
+</html>
