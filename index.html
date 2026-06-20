@@ -17,7 +17,7 @@
     <header class="topbar">
       <div>
         <p class="logo">Overrun Lite</p>
-        <p class="tagline">Simple daily schedule planning</p>
+        <p class="tagline">AI-assisted daily planning</p>
       </div>
       <div class="summary-stack">
         <div class="summary" id="total-time">0h 0m planned</div>
@@ -27,25 +27,58 @@
           <span id="day-timer">08:00:00</span>
           <button id="toggle-day" class="ghost">Start day</button>
         </div>
+        <button id="open-settings" class="ghost">Settings</button>
       </div>
     </header>
 
+    <section class="inbox-shell" data-testid="inbox">
+      <div class="inbox-panel">
+        <div class="inbox-copy">
+          <p class="eyebrow">Brain dump</p>
+          <h1>Dump everything on your mind.</h1>
+          <p class="helper">
+            The planner will extract tasks, surface follow-up questions, break down large work,
+            and keep the backlog ranked by impact and urgency.
+          </p>
+        </div>
+        <div class="inbox-controls">
+          <label for="brain-dump">Inbox</label>
+          <textarea
+            id="brain-dump"
+            data-testid="brain-dump"
+            rows="7"
+            placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
+          ></textarea>
+          <div class="inbox-actions">
+            <button id="analyze-dump" class="primary" data-testid="analyze-dump">Analyze dump</button>
+            <button id="clear-dump" class="ghost" data-testid="clear-dump">Clear</button>
+            <span id="ai-status" class="status-line" role="status" data-testid="ai-status"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <main class="layout">
-      <section class="panel">
-        <h2>Backlog</h2>
-        <p class="helper">Drag tasks back into today when you are ready.</p>
-        <div id="backlog-list" class="task-list"></div>
+      <section class="panel" data-testid="backlog">
+        <div class="section-heading">
+          <div>
+            <h2>Backlog</h2>
+            <p class="helper">Ranked by impact and urgency. Pick items for today when ready.</p>
+          </div>
+          <button id="sort-backlog" class="ghost" data-testid="sort-backlog">Sort</button>
+        </div>
+        <div id="backlog-list" class="task-list" data-testid="backlog-list"></div>
       </section>
 
-      <section class="calendar">
+      <section class="calendar" data-testid="calendar">
         <div class="calendar-header">
           <div>
             <h2>Day view</h2>
             <p class="helper">Drag blocks to resize in 5-minute steps.</p>
           </div>
           <div class="calendar-actions">
-            <button id="add-task" class="primary">Add task</button>
-            <button id="add-meeting" class="ghost">Add meeting</button>
+            <button id="add-task" class="primary" data-testid="add-task">Add task</button>
+            <button id="add-meeting" class="ghost" data-testid="add-meeting">Add meeting</button>
           </div>
         </div>
         <div class="calendar-grid">
@@ -64,7 +97,7 @@
           </div>
           <div class="calendar-day">
             <div class="grid-lines"></div>
-            <div id="calendar-blocks" class="calendar-blocks"></div>
+            <div id="calendar-blocks" class="calendar-blocks" data-testid="calendar-blocks"></div>
           </div>
         </div>
       </section>
@@ -77,11 +110,123 @@
       <input type="file" id="backlog-file" accept="application/json" hidden />
     </footer>
 
+    <aside id="review-panel" class="drawer review-drawer" aria-hidden="true" data-testid="ai-review-drawer">
+      <div class="drawer-card wide">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">AI review</p>
+            <h2>Review before applying</h2>
+          </div>
+          <button id="close-review" class="ghost" data-testid="close-review">Close</button>
+        </div>
+        <p id="review-summary" class="helper" data-testid="review-summary"></p>
+        <div id="review-warnings" class="notice-list" data-testid="review-warnings"></div>
+        <div id="review-questions" class="review-section" data-testid="review-questions"></div>
+        <div id="review-tasks" class="review-section" data-testid="review-tasks"></div>
+        <div class="drawer-actions">
+          <button id="apply-review" class="primary" data-testid="apply-review">Apply accepted tasks</button>
+          <button id="reanalyze-dump" class="ghost" data-testid="reanalyze-dump">Re-analyze with answers</button>
+          <button id="discard-review" class="ghost" data-testid="discard-review">Discard draft</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="settings-panel" class="drawer" aria-hidden="true" data-testid="settings-drawer">
+      <div class="drawer-card">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">AI provider</p>
+            <h2>Settings</h2>
+          </div>
+          <button id="close-settings" class="ghost" data-testid="close-settings">Close</button>
+        </div>
+
+        <label for="provider-mode">Mode</label>
+        <select id="provider-mode" data-testid="provider-mode">
+          <option value="vercel">Vercel API</option>
+          <option value="local">Local OpenAI-compatible</option>
+        </select>
+
+        <label for="local-base-url">Local base URL</label>
+        <input id="local-base-url" data-testid="local-base-url" type="url" placeholder="http://localhost:11434/v1" />
+
+        <label for="local-model">Model</label>
+        <input id="local-model" data-testid="local-model" type="text" placeholder="gpt-oss:20b or local model name" />
+
+        <label for="local-api-key">Local API key</label>
+        <input id="local-api-key" data-testid="local-api-key" type="password" placeholder="Optional for most local servers" />
+
+        <p class="helper">
+          Local mode calls <code>{baseUrl}/chat/completions</code> from the browser, so the
+          local server must allow browser CORS.
+        </p>
+        <div class="drawer-actions">
+          <button id="save-settings" class="primary" data-testid="save-settings">Save settings</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="task-details-panel" class="drawer" aria-hidden="true" data-testid="task-details-drawer">
+      <div class="drawer-card">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">Task details</p>
+            <h2 id="detail-heading">Selected task</h2>
+          </div>
+          <button id="close-task-details" class="ghost" data-testid="close-task-details">Close</button>
+        </div>
+
+        <label for="detail-task-title">Title</label>
+        <input id="detail-task-title" data-testid="detail-task-title" type="text" />
+
+        <div class="detail-grid">
+          <label for="detail-task-duration">Minutes
+            <input id="detail-task-duration" data-testid="detail-task-duration" type="number" min="10" max="480" step="5" />
+          </label>
+          <label for="detail-task-progress">Done minutes
+            <input id="detail-task-progress" data-testid="detail-task-progress" type="number" min="0" max="480" step="5" />
+          </label>
+        </div>
+
+        <div class="detail-grid">
+          <label for="detail-priority-score">Priority
+            <input id="detail-priority-score" data-testid="detail-priority-score" type="number" min="1" max="100" />
+          </label>
+          <label for="detail-impact">Impact
+            <input id="detail-impact" data-testid="detail-impact" type="number" min="1" max="5" />
+          </label>
+          <label for="detail-urgency">Urgency
+            <input id="detail-urgency" data-testid="detail-urgency" type="number" min="1" max="5" />
+          </label>
+        </div>
+
+        <label for="detail-priority-reason">Priority reason</label>
+        <textarea id="detail-priority-reason" data-testid="detail-priority-reason" rows="3"></textarea>
+
+        <section class="detail-section">
+          <div class="section-heading compact">
+            <h3>Subtasks</h3>
+          </div>
+          <div id="detail-subtasks" class="detail-subtasks" data-testid="detail-subtasks"></div>
+        </section>
+
+        <div class="drawer-actions detail-actions">
+          <button id="detail-toggle-timer" class="primary" data-testid="detail-toggle-timer">Start</button>
+          <button id="detail-toggle-done" class="ghost" data-testid="detail-toggle-done">Done</button>
+          <button id="detail-split" class="ghost" data-testid="detail-split">Split</button>
+          <button id="detail-backlog" class="ghost" data-testid="detail-backlog">Backlog</button>
+          <button id="detail-delete" class="danger" data-testid="detail-delete">Delete</button>
+        </div>
+      </div>
+    </aside>
+
     <template id="backlog-template">
       <div class="task-card backlog">
         <div>
           <p class="task-title"></p>
           <p class="task-time"></p>
+          <p class="task-meta"></p>
+          <ul class="task-subtasks"></ul>
         </div>
         <div class="task-actions">
           <button data-action="pick" class="primary">Pick up</button>
@@ -89,6 +234,7 @@
       </div>
     </template>
 
+    <script src="aiContract.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
