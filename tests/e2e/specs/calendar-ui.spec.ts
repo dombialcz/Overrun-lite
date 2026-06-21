@@ -165,6 +165,85 @@ test("calendar block shows subtask completion progress", async ({ ui }) => {
   expect(metrics.overflow).toBe(false);
 });
 
+test("settings can clear API keys while keeping tasks", async ({ ui }) => {
+  await ui.calendar.addTask();
+  await ui.settings.useLocalProvider({
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "qwen/qwen3.7-plus",
+    apiKey: "temporary-test-key",
+  });
+
+  let storedSettings = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_ai_settings") || "{}")
+  );
+  expect(storedSettings.localApiKey).toBe("temporary-test-key");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+
+  await ui.settings.clearLocalSettings();
+
+  storedSettings = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_ai_settings") || "{}")
+  );
+  expect(storedSettings.localApiKey).toBeUndefined();
+  expect(await ui.page.evaluate(() => localStorage.getItem("overrun_lite_state"))).not.toBeNull();
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  await expect(ui.page.getByTestId("ai-status")).toHaveText("Local AI settings cleared. Tasks and backlog were kept.");
+});
+
+test("AI review skips existing tasks echoed by weak local models", async ({ ui }) => {
+  await ui.calendar.addTask();
+  await ui.page.route("/api/plan", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        currentTasks: [
+          {
+            title: "New task",
+            minutes: 60,
+            priorityScore: 50,
+            priorityReason: "Existing task echoed from context.",
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+        ],
+        currentBacklog: [
+          {
+            title: "Make a cake",
+            minutes: 140,
+            priorityScore: 30,
+            priorityReason: "Lacks a deadline and specific requirements.",
+            urgency: 2,
+            impact: 2,
+            subtasks: [
+              { title: "Select a cake recipe", minutes: 20 },
+              { title: "Purchase all required ingredients", minutes: 45 },
+            ],
+          },
+        ],
+        questions: [
+          "When do you need the cake to be ready by?",
+          "What kind of cake are you looking to make?",
+        ],
+        priorityUpdates: [],
+        warnings: [],
+      }),
+    });
+  });
+
+  await ui.inbox.fillDump("I need to make a cake but I have no ingredients and no recipe.");
+  await ui.page.getByTestId("analyze-dump").click();
+  await expect(ui.page.getByTestId("ai-status")).toHaveText("Draft ready for review.");
+
+  const proposalTitles = await ui.page.locator(".proposal-card input[type='text']").evaluateAll((inputs) =>
+    inputs.map((input) => (input as HTMLInputElement).value)
+  );
+  expect(proposalTitles).toContain("Make a cake");
+  expect(proposalTitles).not.toContain("New task");
+  await expect(ui.page.getByTestId("review-warnings")).toContainText("1 existing task was returned by AI and skipped.");
+  await expect(ui.page.getByTestId("review-questions")).toContainText("When do you need the cake to be ready by?");
+});
+
 test("Google Calendar import previews events, applies them, and skips duplicates", async ({ ui }) => {
   await ui.settings.setGoogleClientId("test-google-client-id");
   await ui.page.evaluate(() => {

@@ -24,4 +24,12 @@ export class SettingsPageObject {
     await this.page.getByTestId("google-client-id").fill(clientId);
     await this.page.getByTestId("save-settings").click();
   }
+
+  async clearLocalSettings(): Promise<void> {
+    this.page.once("dialog", async (dialog) => {
+      await dialog.accept();
+    });
+    await this.page.getByRole("button", { name: "Settings" }).click();
+    await this.page.getByTestId("clear-local-storage").click();
+  }
 }

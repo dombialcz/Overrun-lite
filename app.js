@@ -13,6 +13,13 @@ const DAY_MINUTES = 11 * 60;
 const MOVE_STEP_MINUTES = 5;
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 const GOOGLE_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const DEFAULT_AI_SETTINGS = {
+  providerMode: "vercel",
+  localBaseUrl: "http://localhost:11434/v1",
+  localModel: "",
+  localApiKey: "",
+  googleClientId: "",
+};
 
 const ai = window.OverrunAI;
 
@@ -22,13 +29,7 @@ const state = {
   selectedTaskId: null,
   reviewDraft: null,
   googleImportDraft: null,
-  aiSettings: {
-    providerMode: "vercel",
-    localBaseUrl: "http://localhost:11434/v1",
-    localModel: "",
-    localApiKey: "",
-    googleClientId: "",
-  },
+  aiSettings: { ...DEFAULT_AI_SETTINGS },
 };
 
 const els = {
@@ -44,6 +45,7 @@ const els = {
   clearDump: document.getElementById("clear-dump"),
   closeReview: document.getElementById("close-review"),
   closeSettings: document.getElementById("close-settings"),
+  clearLocalStorage: document.getElementById("clear-local-storage"),
   closeTaskDetails: document.getElementById("close-task-details"),
   dayTimer: document.getElementById("day-timer"),
   detailBacklog: document.getElementById("detail-backlog"),
@@ -170,7 +172,7 @@ function loadState() {
   assignSequentialStartsWhenMissing(state.tasks);
   state.backlog = Array.isArray(parsed.backlog) ? parsed.backlog.map(normalizeTask) : [];
   state.aiSettings = {
-    ...state.aiSettings,
+    ...DEFAULT_AI_SETTINGS,
     ...readJson(SETTINGS_KEY, {}),
   };
   state.reviewDraft = readJson(REVIEW_KEY, null);
@@ -193,6 +195,28 @@ function saveReviewDraft() {
   } else {
     safeRemove(REVIEW_KEY);
   }
+}
+
+function clearLocalStorageState() {
+  if (!confirm("Clear local AI settings and API keys from this browser? Current tasks and backlog will be kept.")) {
+    return;
+  }
+  [SETTINGS_KEY, REVIEW_KEY].forEach(safeRemove);
+  [SETTINGS_KEY, REVIEW_KEY].forEach((key) => {
+    delete memoryStore[key];
+  });
+  state.selectedTaskId = null;
+  state.reviewDraft = null;
+  state.googleImportDraft = null;
+  state.aiSettings = { ...DEFAULT_AI_SETTINGS };
+  els.brainDump.value = "";
+  pauseTimer();
+  closeDrawer(els.reviewPanel);
+  closeDrawer(els.googleImportPanel);
+  closeDrawer(els.taskDetailsPanel);
+  render();
+  openDrawer(els.settingsPanel);
+  setStatus("Local AI settings cleared. Tasks and backlog were kept.");
 }
 
 function formatDuration(minutes) {
@@ -1244,6 +1268,34 @@ function summarizeTaskForAI(task) {
   };
 }
 
+function normalizeComparableTitle(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function filterExistingTaskProposals(proposedTasks, payload) {
+  const existingIds = new Set();
+  const existingTitles = new Set();
+  [...(payload.currentTasks || []), ...(payload.currentBacklog || [])].forEach((task) => {
+    if (task.id) existingIds.add(String(task.id));
+    const title = normalizeComparableTitle(task.title || task.name);
+    if (title) existingTitles.add(title);
+  });
+
+  let skipped = 0;
+  const filtered = proposedTasks.filter((task) => {
+    const id = task.id ? String(task.id) : "";
+    const title = normalizeComparableTitle(task.title || task.name);
+    const isExisting = (id && existingIds.has(id)) || (title && existingTitles.has(title));
+    if (isExisting) skipped += 1;
+    return !isExisting;
+  });
+
+  return { filtered, skipped };
+}
+
 async function analyzeDump() {
   const payload = createPlannerPayload();
   if (!payload.input) {
@@ -1257,15 +1309,20 @@ async function analyzeDump() {
   try {
     const result = await requestAIPlan(payload);
     const normalized = ai.normalizePlannerResponse(result);
+    const { filtered, skipped } = filterExistingTaskProposals(normalized.proposedTasks, payload);
+    const warnings = [...normalized.warnings];
+    if (skipped) {
+      warnings.push(`${skipped} existing task${skipped === 1 ? " was" : "s were"} returned by AI and skipped.`);
+    }
     state.reviewDraft = {
       id: createId("dump"),
       sourceText: payload.input,
       summary: normalized.summary,
-      warnings: normalized.warnings,
+      warnings,
       questions: normalized.questions,
       priorityUpdates: normalized.priorityUpdates,
       answers: payload.answers || {},
-      proposedTasks: normalized.proposedTasks.map((task) => ({
+      proposedTasks: filtered.map((task) => ({
         ...task,
         accepted: true,
       })),
@@ -1711,6 +1768,7 @@ function setupEvents() {
   els.toggleDay.addEventListener("click", toggleDayTimer);
   els.openSettings.addEventListener("click", () => openDrawer(els.settingsPanel));
   els.closeSettings.addEventListener("click", () => closeDrawer(els.settingsPanel));
+  els.clearLocalStorage.addEventListener("click", clearLocalStorageState);
   els.closeReview.addEventListener("click", () => closeDrawer(els.reviewPanel));
   els.importGoogleCalendar.addEventListener("click", importFromGoogleCalendar);
   els.closeGoogleImport.addEventListener("click", () => closeDrawer(els.googleImportPanel));

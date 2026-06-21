@@ -132,13 +132,7 @@
 
   function normalizePlannerResponse(value) {
     const source = value && typeof value === "object" ? value : {};
-    const proposedTasks = Array.isArray(source.proposedTasks)
-      ? source.proposedTasks
-      : Array.isArray(source.tasks)
-        ? source.tasks
-        : Array.isArray(source.currentTasks)
-          ? source.currentTasks
-          : [];
+    const proposedTasks = collectTaskProposals(source);
     return {
       summary: String(source.summary || ""),
       proposedTasks: proposedTasks.map(normalizeTaskProposal).filter(Boolean),
@@ -152,6 +146,16 @@
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
         : [],
     };
+  }
+
+  function collectTaskProposals(source) {
+    if (Array.isArray(source.proposedTasks)) return source.proposedTasks;
+    if (Array.isArray(source.tasks)) return source.tasks;
+    return [
+      ...(Array.isArray(source.currentTasks) ? source.currentTasks : []),
+      ...(Array.isArray(source.currentBacklog) ? source.currentBacklog : []),
+      ...(Array.isArray(source.backlog) ? source.backlog : []),
+    ];
   }
 
   function normalizeTaskProposal(item) {
@@ -183,6 +187,15 @@
   }
 
   function normalizeQuestion(item, index) {
+    if (typeof item === "string") {
+      const questionText = item.trim();
+      if (!questionText) return null;
+      return {
+        id: `question-${index + 1}`,
+        question: questionText,
+        reason: "Clarifies the task before planning.",
+      };
+    }
     if (!item || typeof item !== "object") return null;
     const question = String(item.question || "").trim();
     if (!question) return null;
