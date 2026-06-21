@@ -105,6 +105,7 @@
 
     <footer class="footer-actions">
       <button id="save-day" class="primary">Save the day</button>
+      <button id="import-google-calendar" class="ghost" data-testid="import-google-calendar">Import from Google Calendar</button>
       <button id="export-backlog" class="ghost">Export backlog</button>
       <button id="import-backlog" class="ghost">Import backlog</button>
       <input type="file" id="backlog-file" accept="application/json" hidden />
@@ -156,12 +157,38 @@
         <label for="local-api-key">Local API key</label>
         <input id="local-api-key" data-testid="local-api-key" type="password" placeholder="Optional for most local servers" />
 
+        <label for="google-client-id">Google OAuth client ID</label>
+        <input id="google-client-id" data-testid="google-client-id" type="text" placeholder="Client ID for Google Calendar import" />
+
         <p class="helper">
           Local mode calls <code>{baseUrl}/chat/completions</code> from the browser, so the
           local server must allow browser CORS.
         </p>
+        <p class="helper">
+          Google import uses browser-only OAuth with <code>calendar.readonly</code>. Add this
+          page origin to the OAuth client in Google Cloud.
+        </p>
         <div class="drawer-actions">
           <button id="save-settings" class="primary" data-testid="save-settings">Save settings</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="google-import-panel" class="drawer review-drawer" aria-hidden="true" data-testid="google-import-drawer">
+      <div class="drawer-card wide">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">Google Calendar</p>
+            <h2>Review imported events</h2>
+          </div>
+          <button id="close-google-import" class="ghost" data-testid="close-google-import">Close</button>
+        </div>
+        <p id="google-import-summary" class="helper" data-testid="google-import-summary"></p>
+        <div id="google-import-warnings" class="notice-list" data-testid="google-import-warnings"></div>
+        <div id="google-import-events" class="review-section" data-testid="google-import-events"></div>
+        <div class="drawer-actions">
+          <button id="apply-google-import" class="primary" data-testid="apply-google-import">Apply accepted events</button>
+          <button id="discard-google-import" class="ghost" data-testid="discard-google-import">Discard import</button>
         </div>
       </div>
     </aside>
@@ -180,6 +207,9 @@
         <input id="detail-task-title" data-testid="detail-task-title" type="text" />
 
         <div class="detail-grid">
+          <label for="detail-task-start">Start time
+            <input id="detail-task-start" data-testid="detail-task-start" type="time" min="08:00" max="18:50" step="300" />
+          </label>
           <label for="detail-task-duration">Minutes
             <input id="detail-task-duration" data-testid="detail-task-duration" type="number" min="10" max="480" step="5" />
           </label>
@@ -235,6 +265,7 @@
     </template>
 
     <script src="aiContract.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="app.js"></script>
   </body>
 </html>

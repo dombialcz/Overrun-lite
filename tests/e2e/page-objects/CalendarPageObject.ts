@@ -38,10 +38,25 @@ export class CalendarPageObject {
         className: block.className,
         gripHeight: Math.round(gripRect.height),
         height: Math.round(rect.height),
+        left: Math.round(rect.left),
         overflow: block.scrollHeight > block.clientHeight,
         text: block.textContent?.trim() || "",
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
       };
     });
+  }
+
+  async moveBlock(index: number, deltaY: number): Promise<void> {
+    const block = this.block(index);
+    const box = await block.boundingBox();
+    if (!box) throw new Error("Calendar block is not visible.");
+    const startX = box.x + box.width / 2;
+    const startY = box.y + Math.min(20, box.height / 2);
+    await this.page.mouse.move(startX, startY);
+    await this.page.mouse.down();
+    await this.page.mouse.move(startX, startY + deltaY, { steps: 8 });
+    await this.page.mouse.up();
   }
 
   async resizeBlock(index: number, deltaY: number): Promise<void> {

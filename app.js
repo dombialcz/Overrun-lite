@@ -8,6 +8,11 @@ const MIN_MINUTES = 10;
 const SEGMENT_BLOCK = 30;
 const RESIZE_STEP_MINUTES = 5;
 const CALENDAR_BLOCK_MIN_HEIGHT = 56;
+const DAY_START_HOUR = 8;
+const DAY_MINUTES = 11 * 60;
+const MOVE_STEP_MINUTES = 5;
+const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const GOOGLE_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
 const ai = window.OverrunAI;
 
@@ -16,11 +21,13 @@ const state = {
   backlog: [],
   selectedTaskId: null,
   reviewDraft: null,
+  googleImportDraft: null,
   aiSettings: {
     providerMode: "vercel",
     localBaseUrl: "http://localhost:11434/v1",
     localModel: "",
     localApiKey: "",
+    googleClientId: "",
   },
 };
 
@@ -47,6 +54,7 @@ const els = {
   detailPriorityScore: document.getElementById("detail-priority-score"),
   detailSplit: document.getElementById("detail-split"),
   detailSubtasks: document.getElementById("detail-subtasks"),
+  detailTaskStart: document.getElementById("detail-task-start"),
   detailTaskDuration: document.getElementById("detail-task-duration"),
   detailTaskProgress: document.getElementById("detail-task-progress"),
   detailTaskTitle: document.getElementById("detail-task-title"),
@@ -56,6 +64,15 @@ const els = {
   discardReview: document.getElementById("discard-review"),
   doneTime: document.getElementById("done-time"),
   exportBacklog: document.getElementById("export-backlog"),
+  googleClientId: document.getElementById("google-client-id"),
+  googleImportEvents: document.getElementById("google-import-events"),
+  googleImportPanel: document.getElementById("google-import-panel"),
+  googleImportSummary: document.getElementById("google-import-summary"),
+  googleImportWarnings: document.getElementById("google-import-warnings"),
+  applyGoogleImport: document.getElementById("apply-google-import"),
+  closeGoogleImport: document.getElementById("close-google-import"),
+  discardGoogleImport: document.getElementById("discard-google-import"),
+  importGoogleCalendar: document.getElementById("import-google-calendar"),
   importBacklog: document.getElementById("import-backlog"),
   localApiKey: document.getElementById("local-api-key"),
   localBaseUrl: document.getElementById("local-base-url"),
@@ -79,12 +96,16 @@ const els = {
 };
 
 const dragState = {
+  moveId: null,
   resizeId: null,
   progressId: null,
   progressRect: null,
   startY: 0,
   startMinutes: 0,
+  startTopMinutes: 0,
   isResizing: false,
+  isMoving: false,
+  pointerMoved: false,
 };
 
 const timerState = {
@@ -146,6 +167,7 @@ function readJson(key, fallback) {
 function loadState() {
   const parsed = readJson(STORAGE_KEY, {});
   state.tasks = Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask) : [];
+  assignSequentialStartsWhenMissing(state.tasks);
   state.backlog = Array.isArray(parsed.backlog) ? parsed.backlog.map(normalizeTask) : [];
   state.aiSettings = {
     ...state.aiSettings,
@@ -202,6 +224,8 @@ function normalizeTask(task) {
     name: title,
     minutes,
     type: source.type === "meeting" ? "meeting" : "task",
+    startMinutes: clampNumber(source.startMinutes, 0, DAY_MINUTES - MIN_MINUTES, 0),
+    hasExplicitStart: source.startMinutes !== undefined && source.startMinutes !== null,
     elapsedMinutes,
     completed: Boolean(source.completed),
     priorityScore: clampNumber(source.priorityScore, 1, 100, 50),
@@ -209,6 +233,11 @@ function normalizeTask(task) {
     urgency: clampNumber(source.urgency, 1, 5, 3),
     impact: clampNumber(source.impact, 1, 5, 3),
     sourceDumpId: source.sourceDumpId ? String(source.sourceDumpId) : null,
+    sourceProvider: source.sourceProvider ? String(source.sourceProvider) : null,
+    sourceCalendarId: source.sourceCalendarId ? String(source.sourceCalendarId) : null,
+    sourceEventId: source.sourceEventId ? String(source.sourceEventId) : null,
+    sourceEventICalUID: source.sourceEventICalUID ? String(source.sourceEventICalUID) : null,
+    sourceUpdated: source.sourceUpdated ? String(source.sourceUpdated) : null,
     parentId: source.parentId ? String(source.parentId) : null,
     splitGroupId: source.splitGroupId || source.parentId ? String(source.splitGroupId || source.parentId) : null,
     splitPartIndex: source.splitPartIndex ? clampNumber(source.splitPartIndex, 1, 99, 1) : null,
@@ -236,6 +265,8 @@ function createTask(name, minutes = DEFAULT_MINUTES, type = "task", overrides = 
     name,
     minutes,
     type,
+    startMinutes: findNextTaskStart(minutes),
+    hasExplicitStart: true,
     elapsedMinutes: 0,
     completed: false,
     ...overrides,
@@ -247,6 +278,29 @@ function addTask(name, type = "task") {
   state.tasks.push(createTask(name.trim(), DEFAULT_MINUTES, type));
   saveState();
   render();
+}
+
+function assignSequentialStartsWhenMissing(tasks) {
+  let cursor = 0;
+  tasks.forEach((task) => {
+    if (!task.hasExplicitStart) {
+      task.startMinutes = clampStartMinutes(cursor, task.minutes);
+      task.hasExplicitStart = true;
+    }
+    cursor = Math.max(cursor, task.startMinutes + task.minutes);
+  });
+}
+
+function findNextTaskStart(minutes) {
+  const latestEnd = state.tasks.reduce(
+    (max, task) => Math.max(max, task.startMinutes + task.minutes),
+    0
+  );
+  return clampStartMinutes(latestEnd, minutes);
+}
+
+function clampStartMinutes(value, duration = MIN_MINUTES) {
+  return clampNumber(value, 0, Math.max(0, DAY_MINUTES - Math.min(duration, DAY_MINUTES)), 0);
 }
 
 function splitTask(id) {
@@ -274,6 +328,8 @@ function splitTask(id) {
       splitGroupId,
       splitPartIndex: index + 1,
       splitPartCount: segmentCount,
+      startMinutes: clampStartMinutes(task.startMinutes + index * segmentMinutes, segmentMinutes),
+      hasExplicitStart: true,
     })
   );
   state.tasks.splice(taskIndex, 1, ...splitTasks);
@@ -353,6 +409,22 @@ function formatTimer(seconds) {
   const mins = Math.floor((safeSeconds % 3600) / 60);
   const secs = safeSeconds % 60;
   return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function formatClockTime(startMinutes) {
+  const totalMinutes = DAY_START_HOUR * 60 + clampNumber(startMinutes, 0, DAY_MINUTES, 0);
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
+function parseClockTime(value, fallback = 0) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  const hours = Number(match[1]);
+  const mins = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(mins)) return fallback;
+  return (hours - DAY_START_HOUR) * 60 + mins;
 }
 
 function getLiveRemainingSeconds(task) {
@@ -455,6 +527,78 @@ function priorityLabel(task) {
   return `P${task.priorityScore} | Impact ${task.impact}/5 | Urgency ${task.urgency}/5`;
 }
 
+function getSubtaskProgress(task) {
+  const total = Array.isArray(task.subtasks) ? task.subtasks.length : 0;
+  const completed = total
+    ? task.subtasks.filter((subtask) => subtask.completed).length
+    : 0;
+  return { completed, total };
+}
+
+function formatSubtaskProgress(task, compact = false) {
+  const { completed, total } = getSubtaskProgress(task);
+  if (!total) return "";
+  return compact ? `Sub ${completed}/${total}` : `Subtasks ${completed}/${total}`;
+}
+
+function taskOverlaps(a, b) {
+  return a.startMinutes < b.startMinutes + b.minutes && b.startMinutes < a.startMinutes + a.minutes;
+}
+
+function buildCalendarLayout() {
+  const sorted = [...state.tasks].sort((a, b) => {
+    if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
+    return b.minutes - a.minutes;
+  });
+  const layout = new Map();
+  const cluster = [];
+  let clusterEnd = -1;
+
+  function flushCluster() {
+    if (!cluster.length) return;
+    assignClusterLanes(cluster, layout);
+    cluster.length = 0;
+    clusterEnd = -1;
+  }
+
+  sorted.forEach((task) => {
+    if (!cluster.length || task.startMinutes < clusterEnd) {
+      cluster.push(task);
+      clusterEnd = Math.max(clusterEnd, task.startMinutes + task.minutes);
+      return;
+    }
+    flushCluster();
+    cluster.push(task);
+    clusterEnd = task.startMinutes + task.minutes;
+  });
+  flushCluster();
+  return layout;
+}
+
+function assignClusterLanes(cluster, layout) {
+  const lanes = [];
+  cluster.forEach((task) => {
+    let laneIndex = lanes.findIndex((laneEnd) => laneEnd <= task.startMinutes);
+    if (laneIndex === -1) {
+      laneIndex = lanes.length;
+      lanes.push(0);
+    }
+    lanes[laneIndex] = task.startMinutes + task.minutes;
+    layout.set(task.id, {
+      hasConflict: cluster.length > 1,
+      laneCount: cluster.length > 1 ? lanes.length : 1,
+      laneIndex,
+    });
+  });
+
+  const laneCount = lanes.length;
+  cluster.forEach((task) => {
+    const item = layout.get(task.id);
+    item.laneCount = laneCount;
+    item.hasConflict = cluster.some((other) => other.id !== task.id && taskOverlaps(task, other));
+  });
+}
+
 function renderBacklog() {
   els.backlogList.innerHTML = "";
   state.backlog.forEach((task) => {
@@ -464,9 +608,15 @@ function renderBacklog() {
     card.dataset.taskId = task.id;
     node.querySelector(".task-title").textContent = task.name;
     node.querySelector(".task-time").textContent = `${formatDuration(task.minutes)} planned`;
+    const subtaskSummary = formatSubtaskProgress(task);
+    const metaParts = [
+      priorityLabel(task),
+      subtaskSummary,
+      task.priorityReason,
+    ].filter(Boolean);
     node.querySelector(".task-meta").textContent = task.priorityReason
-      ? `${priorityLabel(task)} - ${task.priorityReason}`
-      : priorityLabel(task);
+      ? metaParts.join(" - ")
+      : metaParts.join(" | ");
     const subtaskList = node.querySelector(".task-subtasks");
     task.subtasks.forEach((subtask) => {
       const item = document.createElement("li");
@@ -494,21 +644,28 @@ function renderCalendar(options = {}) {
   els.doneTime.textContent = `${formatDuration(doneMinutes)} done`;
 
   const groupInfo = buildSplitGroupInfo();
+  const calendarLayout = buildCalendarLayout();
 
   state.tasks.forEach((task) => {
     const block = document.createElement("div");
     block.className = "calendar-block";
     block.dataset.testid = "calendar-block";
     const group = groupInfo.get(task.id);
+    const layout = calendarLayout.get(task.id) || { hasConflict: false, laneCount: 1, laneIndex: 0 };
     if (task.type === "meeting") block.classList.add("meeting");
     if (task.completed) block.classList.add("completed");
     if (!task.completed && task.elapsedMinutes >= task.minutes) block.classList.add("overdue");
     if (group) block.classList.add("split-grouped");
+    if (layout.hasConflict) block.classList.add("overlap-conflict");
     if (state.selectedTaskId === task.id) block.classList.add("selected");
     block.dataset.id = task.id;
-    block.draggable = true;
+    block.draggable = false;
     const visualHeight = Math.max(CALENDAR_BLOCK_MIN_HEIGHT, task.minutes * getPixelsPerMinute());
     if (visualHeight <= 68) block.classList.add("short");
+    const laneWidth = 100 / layout.laneCount;
+    block.style.top = `${task.startMinutes * getPixelsPerMinute()}px`;
+    block.style.left = `${layout.laneIndex * laneWidth}%`;
+    block.style.width = `${laneWidth}%`;
     block.style.height = `${visualHeight}px`;
 
     const content = document.createElement("div");
@@ -548,11 +705,21 @@ function renderCalendar(options = {}) {
 
     const topMeta = document.createElement("div");
     topMeta.className = "calendar-top-meta";
-    topMeta.append(time, priorityChip);
+    topMeta.append(time);
+    const subtaskSummary = formatSubtaskProgress(task, true);
+    if (subtaskSummary) {
+      const subtaskChip = document.createElement("span");
+      subtaskChip.className = "subtask-chip";
+      subtaskChip.dataset.testid = "subtask-chip";
+      subtaskChip.textContent = subtaskSummary;
+      subtaskChip.title = formatSubtaskProgress(task);
+      topMeta.append(subtaskChip);
+    }
+    topMeta.append(priorityChip);
 
     const meta = document.createElement("span");
     meta.className = "calendar-block-meta";
-    meta.textContent = `Impact ${task.impact}/5 | Urgency ${task.urgency}/5 | ${formatDuration(task.minutes)}`;
+    meta.textContent = `${formatClockTime(task.startMinutes)} | Impact ${task.impact}/5 | Urgency ${task.urgency}/5 | ${formatDuration(task.minutes)}`;
 
     topLine.append(titleWrap, topMeta);
 
@@ -587,15 +754,21 @@ function renderCalendar(options = {}) {
     content.append(topLine, meta, progress);
     block.append(content, resizeHandle);
     block.addEventListener("click", (event) => {
-      if (event.target === resizeHandle || dragState.isResizing) return;
+      if (event.target === resizeHandle || dragState.isResizing || dragState.pointerMoved) return;
       openTaskDetails(task.id);
     });
-    block.addEventListener("dragstart", (event) => {
-      if (dragState.isResizing) {
-        event.preventDefault();
-        return;
-      }
-      event.dataTransfer.setData("text/plain", task.id);
+    block.addEventListener("pointerdown", (event) => {
+      if (event.target === resizeHandle) return;
+      dragState.moveId = task.id;
+      dragState.isMoving = true;
+      dragState.pointerMoved = false;
+      dragState.startY = event.clientY;
+      dragState.startTopMinutes = task.startMinutes;
+      block.setPointerCapture(event.pointerId);
+    });
+    block.addEventListener("pointerup", () => {
+      dragState.moveId = null;
+      dragState.isMoving = false;
     });
     resizeHandle.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -678,6 +851,7 @@ function renderTaskDetails() {
 
   els.detailHeading.textContent = task.name;
   els.detailTaskTitle.value = task.name;
+  els.detailTaskStart.value = formatClockTime(task.startMinutes);
   els.detailTaskDuration.value = String(task.minutes);
   els.detailTaskProgress.max = String(task.minutes);
   els.detailTaskProgress.value = String(task.elapsedMinutes);
@@ -709,6 +883,8 @@ function renderDetailSubtasks(task) {
     checkbox.addEventListener("change", () => {
       subtask.completed = checkbox.checked;
       saveState();
+      renderCalendar({ skipDetails: true });
+      renderBacklog();
     });
     const text = document.createElement("span");
     text.textContent = `${subtask.title} (${formatDuration(subtask.minutes)})`;
@@ -723,6 +899,7 @@ function updateSelectedTask(mutator, options = {}) {
   mutator(task);
   task.elapsedMinutes = Math.min(task.elapsedMinutes, task.minutes);
   task.completed = task.elapsedMinutes >= task.minutes ? true : task.completed;
+  task.startMinutes = clampStartMinutes(task.startMinutes, task.minutes);
   saveState();
   if (options.render === "calendar") {
     renderCalendar({ skipDetails: true });
@@ -737,6 +914,7 @@ function renderSettings() {
   els.localBaseUrl.value = state.aiSettings.localBaseUrl;
   els.localModel.value = state.aiSettings.localModel;
   els.localApiKey.value = state.aiSettings.localApiKey;
+  els.googleClientId.value = state.aiSettings.googleClientId || "";
 }
 
 function renderReview() {
@@ -786,6 +964,95 @@ function renderReviewQuestions(draft) {
     });
     row.append(hint, input);
     els.reviewQuestions.appendChild(row);
+  });
+}
+
+function renderGoogleImport() {
+  const draft = state.googleImportDraft;
+  const hasDraft = Boolean(draft);
+  els.googleImportPanel.setAttribute("aria-hidden", hasDraft ? "false" : "true");
+  if (!draft) return;
+
+  els.googleImportSummary.textContent = draft.summary;
+  els.googleImportWarnings.innerHTML = "";
+  draft.warnings.forEach((warning) => {
+    const item = document.createElement("p");
+    item.className = "notice";
+    item.textContent = warning;
+    els.googleImportWarnings.appendChild(item);
+  });
+
+  els.googleImportEvents.innerHTML = "";
+  const heading = document.createElement("h3");
+  heading.textContent = "Events";
+  els.googleImportEvents.appendChild(heading);
+
+  if (!draft.events.length) {
+    const empty = document.createElement("p");
+    empty.className = "helper";
+    empty.textContent = "No new importable events were found.";
+    els.googleImportEvents.appendChild(empty);
+    return;
+  }
+
+  draft.events.forEach((event, index) => {
+    const card = document.createElement("article");
+    card.className = "proposal-card";
+    card.dataset.testid = "google-import-event";
+    if (!event.accepted) card.classList.add("muted-card");
+
+    const accept = document.createElement("input");
+    accept.type = "checkbox";
+    accept.checked = event.accepted;
+    accept.addEventListener("change", () => {
+      event.accepted = accept.checked;
+      renderGoogleImport();
+    });
+
+    const title = document.createElement("input");
+    title.type = "text";
+    title.value = event.title;
+    title.addEventListener("input", () => {
+      event.title = title.value;
+    });
+
+    const start = document.createElement("input");
+    start.type = "time";
+    start.min = "08:00";
+    start.max = "18:50";
+    start.step = "300";
+    start.value = formatClockTime(event.startMinutes);
+    start.addEventListener("input", () => {
+      event.startMinutes = clampStartMinutes(parseClockTime(start.value, event.startMinutes), event.minutes);
+    });
+
+    const minutes = createNumberInput(event.minutes, MIN_MINUTES, 480, (value) => {
+      event.minutes = value;
+      event.startMinutes = clampStartMinutes(event.startMinutes, event.minutes);
+    });
+
+    const removeEvent = makeButton("Discard", () => {
+      draft.events.splice(index, 1);
+      renderGoogleImport();
+    });
+
+    const source = document.createElement("p");
+    source.className = "task-meta";
+    source.textContent = event.sourceUpdated
+      ? `Source: ${event.sourceCalendarId} | ${event.sourceUpdated}`
+      : `Source: ${event.sourceCalendarId}`;
+
+    const grid = document.createElement("div");
+    grid.className = "proposal-grid import-grid";
+    grid.append(
+      makeField("Accept", accept),
+      makeField("Event", title),
+      makeField("Start", start),
+      makeField("Minutes", minutes)
+    );
+
+    card.append(grid, source, removeEvent);
+    els.googleImportEvents.appendChild(card);
   });
 }
 
@@ -917,6 +1184,7 @@ function render() {
   renderCalendar();
   renderSettings();
   renderReview();
+  renderGoogleImport();
   updateDayTimerDisplay();
 }
 
@@ -955,12 +1223,19 @@ function summarizeTaskForAI(task) {
   return {
     id: task.id,
     title: task.name,
+    startTime: formatClockTime(task.startMinutes),
+    startMinutes: task.startMinutes,
     minutes: task.minutes,
     completed: task.completed,
     priorityScore: task.priorityScore,
     urgency: task.urgency,
     impact: task.impact,
     priorityReason: task.priorityReason,
+    sourceProvider: task.sourceProvider,
+    sourceCalendarId: task.sourceCalendarId,
+    sourceEventId: task.sourceEventId,
+    sourceEventICalUID: task.sourceEventICalUID,
+    sourceUpdated: task.sourceUpdated,
     subtasks: task.subtasks.map((subtask) => ({
       title: subtask.title,
       minutes: subtask.minutes,
@@ -1048,6 +1323,7 @@ async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
     model,
     messages,
     temperature: 0.2,
+    max_tokens: 1800,
     response_format: useSchema
       ? {
           type: "json_schema",
@@ -1090,6 +1366,227 @@ function readableAIError(err) {
     return "AI request failed. In local mode, check the base URL and CORS settings.";
   }
   return message;
+}
+
+function readableGoogleError(err) {
+  const message = err && err.message ? err.message : "Google Calendar import failed.";
+  if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
+    return "Google Calendar import failed. Check network access and that Google APIs allow this origin.";
+  }
+  return message;
+}
+
+async function importFromGoogleCalendar() {
+  const clientId = state.aiSettings.googleClientId.trim();
+  if (!clientId) {
+    setStatus("Add a Google OAuth client ID in Settings before importing.", true);
+    openDrawer(els.settingsPanel);
+    return;
+  }
+  if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+    setStatus("Google Identity Services script is not loaded yet. Try again in a moment.", true);
+    return;
+  }
+
+  setStatus("Connecting to Google Calendar...");
+  els.importGoogleCalendar.disabled = true;
+  try {
+    const tokenResponse = await requestGoogleAccessToken(clientId);
+    if (!tokenResponse || !tokenResponse.access_token) {
+      throw new Error("Google did not return an access token.");
+    }
+    if (
+      window.google.accounts.oauth2.hasGrantedAllScopes &&
+      !window.google.accounts.oauth2.hasGrantedAllScopes(tokenResponse, GOOGLE_CALENDAR_SCOPE)
+    ) {
+      throw new Error("Calendar readonly permission was not granted.");
+    }
+    const events = await fetchGoogleCalendarEvents(tokenResponse.access_token);
+    state.googleImportDraft = buildGoogleImportDraft(events);
+    setStatus("Google Calendar import ready for review.");
+    openDrawer(els.googleImportPanel);
+    renderGoogleImport();
+  } catch (err) {
+    setStatus(readableGoogleError(err), true);
+  } finally {
+    els.importGoogleCalendar.disabled = false;
+  }
+}
+
+function requestGoogleAccessToken(clientId) {
+  return new Promise((resolve, reject) => {
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: GOOGLE_CALENDAR_SCOPE,
+      callback: (response) => {
+        if (response && response.error) {
+          reject(new Error(response.error_description || response.error));
+          return;
+        }
+        resolve(response);
+      },
+      error_callback: (err) => {
+        reject(new Error(err && err.message ? err.message : "Google authorization was cancelled."));
+      },
+    });
+    client.requestAccessToken();
+  });
+}
+
+async function fetchGoogleCalendarEvents(accessToken) {
+  const { timeMin, timeMax } = getTodayImportWindow();
+  const params = new URLSearchParams({
+    timeMin,
+    timeMax,
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "50",
+  });
+  const response = await fetch(`${GOOGLE_CALENDAR_EVENTS_URL}?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    },
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = json.error && json.error.message
+      ? json.error.message
+      : "Google Calendar API request failed.";
+    throw new Error(message);
+  }
+  return Array.isArray(json.items) ? json.items : [];
+}
+
+function getTodayImportWindow() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return {
+    timeMin: start.toISOString(),
+    timeMax: end.toISOString(),
+  };
+}
+
+function buildGoogleImportDraft(events) {
+  const warnings = [];
+  const mapped = [];
+  let duplicateCount = 0;
+  let skippedAllDayCount = 0;
+  let skippedOutsideDayCount = 0;
+
+  events.forEach((event) => {
+    if (isDuplicateGoogleEvent(event)) {
+      duplicateCount += 1;
+      return;
+    }
+    const task = mapGoogleEventToDraft(event);
+    if (!task) {
+      if (event.start && event.start.date) skippedAllDayCount += 1;
+      else skippedOutsideDayCount += 1;
+      return;
+    }
+    mapped.push(task);
+  });
+
+  if (duplicateCount) {
+    warnings.push(`${duplicateCount} already-imported event${duplicateCount === 1 ? " was" : "s were"} skipped.`);
+  }
+  if (skippedAllDayCount) {
+    warnings.push(`${skippedAllDayCount} all-day event${skippedAllDayCount === 1 ? " was" : "s were"} skipped for this timed day view.`);
+  }
+  if (skippedOutsideDayCount) {
+    warnings.push(`${skippedOutsideDayCount} event${skippedOutsideDayCount === 1 ? " was" : "s were"} outside the visible day window.`);
+  }
+
+  const summary = mapped.length
+    ? `${mapped.length} new event${mapped.length === 1 ? "" : "s"} ready to import for today.`
+    : "No new importable events found for today.";
+
+  return {
+    id: createId("google-import"),
+    summary,
+    warnings,
+    events: mapped,
+  };
+}
+
+function isDuplicateGoogleEvent(event) {
+  const eventId = event && (event.id || event.sourceEventId) ? String(event.id || event.sourceEventId) : "";
+  const calendarId = event && event.sourceCalendarId ? String(event.sourceCalendarId) : "primary";
+  const iCalUID = event && (event.iCalUID || event.sourceEventICalUID)
+    ? String(event.iCalUID || event.sourceEventICalUID)
+    : "";
+  return [...state.tasks, ...state.backlog].some((task) => {
+    if (task.sourceProvider !== "google_calendar") return false;
+    const sameEventId = eventId && task.sourceEventId === eventId && task.sourceCalendarId === calendarId;
+    const sameICalUID = iCalUID && task.sourceEventICalUID === iCalUID;
+    return sameEventId || sameICalUID;
+  });
+}
+
+function mapGoogleEventToDraft(event) {
+  const startRaw = event && event.start ? event.start.dateTime : null;
+  const endRaw = event && event.end ? event.end.dateTime : null;
+  if (!startRaw || !endRaw) return null;
+
+  const start = new Date(startRaw);
+  const end = new Date(endRaw);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
+
+  const startMinutes = (start.getHours() - DAY_START_HOUR) * 60 + start.getMinutes();
+  const durationMinutes =
+    Math.max(MIN_MINUTES, Math.round((end.getTime() - start.getTime()) / 60000 / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES);
+  if (startMinutes < 0 || startMinutes >= DAY_MINUTES) return null;
+
+  const minutes = Math.min(480, durationMinutes);
+  return {
+    accepted: true,
+    title: String(event.summary || "Google Calendar event").trim() || "Google Calendar event",
+    minutes,
+    startMinutes: clampStartMinutes(startMinutes, minutes),
+    sourceProvider: "google_calendar",
+    sourceCalendarId: "primary",
+    sourceEventId: event.id ? String(event.id) : null,
+    sourceEventICalUID: event.iCalUID ? String(event.iCalUID) : null,
+    sourceUpdated: event.updated ? String(event.updated) : "",
+    htmlLink: event.htmlLink ? String(event.htmlLink) : "",
+  };
+}
+
+function applyGoogleImportDraft() {
+  const draft = state.googleImportDraft;
+  if (!draft) return;
+  const accepted = draft.events.filter((event) => event.accepted && event.title.trim());
+  accepted.forEach((event) => {
+    if (isDuplicateGoogleEvent(event)) return;
+    state.tasks.push(createTask(event.title.trim(), event.minutes, "meeting", {
+      startMinutes: event.startMinutes,
+      hasExplicitStart: true,
+      priorityScore: 50,
+      priorityReason: "Imported from Google Calendar.",
+      urgency: 3,
+      impact: 3,
+      sourceProvider: event.sourceProvider,
+      sourceCalendarId: event.sourceCalendarId,
+      sourceEventId: event.sourceEventId,
+      sourceEventICalUID: event.sourceEventICalUID,
+      sourceUpdated: event.sourceUpdated,
+    }));
+  });
+  state.googleImportDraft = null;
+  saveState();
+  closeDrawer(els.googleImportPanel);
+  render();
+  setStatus(`${accepted.length} Google Calendar event${accepted.length === 1 ? "" : "s"} imported.`);
+}
+
+function discardGoogleImportDraft() {
+  state.googleImportDraft = null;
+  closeDrawer(els.googleImportPanel);
+  renderGoogleImport();
+  setStatus("Google Calendar import discarded.");
 }
 
 function applyPriorityUpdates(updates) {
@@ -1149,23 +1646,30 @@ function reorderTasks(dragId, targetId) {
 }
 
 function setupDragAndResize() {
-  els.calendarBlocks.addEventListener("dragover", (event) => {
-    event.preventDefault();
-  });
-
-  els.calendarBlocks.addEventListener("drop", (event) => {
-    event.preventDefault();
-    const dragId = event.dataTransfer.getData("text/plain");
-    const targetBlock = event.target.closest(".calendar-block");
-    if (!targetBlock) return;
-    reorderTasks(dragId, targetBlock.dataset.id);
-  });
-
   document.addEventListener("pointermove", (event) => {
     if (dragState.progressId && dragState.progressRect) {
       const rect = dragState.progressRect;
       const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
       setElapsedFromRatio(dragState.progressId, ratio);
+    }
+    if (dragState.moveId) {
+      const task = state.tasks.find((item) => item.id === dragState.moveId);
+      if (!task) return;
+      const deltaY = event.clientY - dragState.startY;
+      if (Math.abs(deltaY) > 3) dragState.pointerMoved = true;
+      const pixelsPerMinute = getPixelsPerMinute();
+      const deltaMinutes =
+        Math.round(deltaY / (pixelsPerMinute * MOVE_STEP_MINUTES)) *
+        MOVE_STEP_MINUTES;
+      task.startMinutes = clampStartMinutes(
+        dragState.startTopMinutes + deltaMinutes,
+        task.minutes
+      );
+      task.hasExplicitStart = true;
+      saveState();
+      renderCalendar({ skipDetails: true });
+      renderBacklog();
+      return;
     }
     if (!dragState.resizeId) return;
     const task = state.tasks.find((item) => item.id === dragState.resizeId);
@@ -1188,6 +1692,8 @@ function setupDragAndResize() {
   document.addEventListener("pointerup", () => {
     dragState.resizeId = null;
     dragState.isResizing = false;
+    dragState.moveId = null;
+    dragState.isMoving = false;
     dragState.progressId = null;
     dragState.progressRect = null;
   });
@@ -1206,9 +1712,22 @@ function setupEvents() {
   els.openSettings.addEventListener("click", () => openDrawer(els.settingsPanel));
   els.closeSettings.addEventListener("click", () => closeDrawer(els.settingsPanel));
   els.closeReview.addEventListener("click", () => closeDrawer(els.reviewPanel));
+  els.importGoogleCalendar.addEventListener("click", importFromGoogleCalendar);
+  els.closeGoogleImport.addEventListener("click", () => closeDrawer(els.googleImportPanel));
+  els.applyGoogleImport.addEventListener("click", applyGoogleImportDraft);
+  els.discardGoogleImport.addEventListener("click", discardGoogleImportDraft);
   els.closeTaskDetails.addEventListener("click", closeTaskDetails);
   els.applyReview.addEventListener("click", applyReviewDraft);
   els.discardReview.addEventListener("click", discardReviewDraft);
+  els.detailTaskStart.addEventListener("input", () => {
+    updateSelectedTask((task) => {
+      task.startMinutes = clampStartMinutes(
+        parseClockTime(els.detailTaskStart.value, task.startMinutes),
+        task.minutes
+      );
+      task.hasExplicitStart = true;
+    }, { render: "calendar" });
+  });
   els.detailTaskTitle.addEventListener("input", () => {
     updateSelectedTask((task) => {
       task.name = els.detailTaskTitle.value.trim() || "Untitled";
@@ -1218,6 +1737,7 @@ function setupEvents() {
   els.detailTaskDuration.addEventListener("input", () => {
     updateSelectedTask((task) => {
       task.minutes = clampNumber(els.detailTaskDuration.value, MIN_MINUTES, 480, task.minutes);
+      task.startMinutes = clampStartMinutes(task.startMinutes, task.minutes);
       els.detailTaskProgress.max = String(task.minutes);
     }, { render: "calendar" });
   });
@@ -1285,6 +1805,7 @@ function setupEvents() {
       localBaseUrl: els.localBaseUrl.value.trim() || "http://localhost:11434/v1",
       localModel: els.localModel.value.trim(),
       localApiKey: els.localApiKey.value,
+      googleClientId: els.googleClientId.value.trim(),
     };
     saveSettings();
     setStatus("AI settings saved.");
@@ -1306,6 +1827,8 @@ function exportCompletedDay() {
     .map((task) => ({
       id: task.id,
       name: task.name,
+      startMinutes: task.startMinutes,
+      startTime: formatClockTime(task.startMinutes),
       minutes: task.minutes,
       elapsedMinutes: task.elapsedMinutes,
       type: task.type,
@@ -1314,6 +1837,11 @@ function exportCompletedDay() {
       priorityReason: task.priorityReason,
       urgency: task.urgency,
       impact: task.impact,
+      sourceProvider: task.sourceProvider,
+      sourceCalendarId: task.sourceCalendarId,
+      sourceEventId: task.sourceEventId,
+      sourceEventICalUID: task.sourceEventICalUID,
+      sourceUpdated: task.sourceUpdated,
       subtasks: task.subtasks,
     }));
   downloadJson(payload, "overrun_day.json");

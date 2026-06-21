@@ -18,4 +18,10 @@ export class SettingsPageObject {
     }
     await this.page.getByTestId("save-settings").click();
   }
+
+  async setGoogleClientId(clientId: string): Promise<void> {
+    await this.page.getByRole("button", { name: "Settings" }).click();
+    await this.page.getByTestId("google-client-id").fill(clientId);
+    await this.page.getByTestId("save-settings").click();
+  }
 }

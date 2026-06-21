@@ -23,6 +23,41 @@ The planner supports two AI targets:
 
 AI output is always reviewed before it is applied to the backlog.
 
+## Local LLM with MLX
+
+Start an OpenAI-compatible MLX server from the environment where `mlx-lm` is installed:
+
+```sh
+mlx_lm.server \
+  --model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit \
+  --host 127.0.0.1 \
+  --port 8080
+```
+
+Then open `Settings` in the app and use:
+
+- Mode: `Local OpenAI-compatible`
+- Local base URL: `http://127.0.0.1:8080/v1`
+- Model: `mlx-community/Qwen2.5-Coder-7B-Instruct-4bit`
+- Local API key: leave blank
+
+The app sends Chat Completions-compatible requests to `/chat/completions`.
+Small local models may return non-standard task JSON, so the client accepts common
+aliases such as `task`, `priority`, `timeEstimate`, and `currentTasks`.
+
+## Google Calendar import
+
+The Google Calendar import is browser-only and works on static hosting. It uses Google Identity Services with the readonly Calendar scope, then calls the Calendar Events API directly from the browser.
+
+To use it:
+
+1. Create an OAuth web client in Google Cloud.
+2. Add the app origin, for example `http://127.0.0.1:4173` or `https://dombialcz.github.io`, to the authorized JavaScript origins.
+3. Paste the OAuth client ID into `Settings`.
+4. Click `Import from Google Calendar`, review the proposed events, then apply them.
+
+Imported events keep Google source IDs in localStorage so repeated imports skip duplicates.
+
 ## Tests
 
 End-to-end tests use Playwright Test with a custom `{ ui }` fixture:
@@ -34,4 +69,4 @@ npm run test:e2e
 
 All page interaction should start from `ui` in `tests/e2e/fixtures/ui.fixture.ts`.
 Sub page objects are loaded lazily through `ui.calendar`, `ui.taskDetails`,
-`ui.inbox`, `ui.backlog`, `ui.settings`, and `ui.aiReview`.
+`ui.inbox`, `ui.backlog`, `ui.settings`, `ui.aiReview`, and `ui.googleImport`.

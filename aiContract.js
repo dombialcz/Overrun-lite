@@ -132,11 +132,16 @@
 
   function normalizePlannerResponse(value) {
     const source = value && typeof value === "object" ? value : {};
+    const proposedTasks = Array.isArray(source.proposedTasks)
+      ? source.proposedTasks
+      : Array.isArray(source.tasks)
+        ? source.tasks
+        : Array.isArray(source.currentTasks)
+          ? source.currentTasks
+          : [];
     return {
       summary: String(source.summary || ""),
-      proposedTasks: Array.isArray(source.proposedTasks)
-        ? source.proposedTasks.map(normalizeTaskProposal).filter(Boolean)
-        : [],
+      proposedTasks: proposedTasks.map(normalizeTaskProposal).filter(Boolean),
       questions: Array.isArray(source.questions)
         ? source.questions.map(normalizeQuestion).filter(Boolean)
         : [],
@@ -151,14 +156,14 @@
 
   function normalizeTaskProposal(item) {
     if (!item || typeof item !== "object") return null;
-    const title = String(item.title || "").trim();
+    const title = String(item.title || item.task || item.name || "").trim();
     if (!title) return null;
-    const minutes = clampInt(item.minutes, 10, 480, 60);
+    const minutes = clampInt(item.minutes || item.timeEstimate || item.duration, 10, 480, 60);
     return {
       title,
       minutes,
-      priorityScore: clampInt(item.priorityScore, 1, 100, 50),
-      priorityReason: String(item.priorityReason || "Impact and urgency estimate.").trim(),
+      priorityScore: clampInt(item.priorityScore || item.priority, 1, 100, 50),
+      priorityReason: String(item.priorityReason || item.description || "Impact and urgency estimate.").trim(),
       urgency: clampInt(item.urgency, 1, 5, 3),
       impact: clampInt(item.impact, 1, 5, 3),
       subtasks: Array.isArray(item.subtasks)
@@ -169,11 +174,11 @@
 
   function normalizeSubtask(item) {
     if (!item || typeof item !== "object") return null;
-    const title = String(item.title || "").trim();
+    const title = String(item.title || item.task || item.name || "").trim();
     if (!title) return null;
     return {
       title,
-      minutes: clampInt(item.minutes, 5, 240, 25),
+      minutes: clampInt(item.minutes || item.timeEstimate || item.duration, 5, 240, 25),
     };
   }
 
