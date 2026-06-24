@@ -11,6 +11,8 @@ const CALENDAR_BLOCK_MIN_HEIGHT = 56;
 const DAY_START_HOUR = 8;
 const DAY_MINUTES = 11 * 60;
 const MOVE_STEP_MINUTES = 5;
+const COLUMN_OVERLAP_MINUTES = 15;
+const COMPACT_OVERLAP_OFFSET_PX = 12;
 const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 const GOOGLE_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const DEFAULT_AI_SETTINGS = {
@@ -54,6 +56,8 @@ const els = {
   detailImpact: document.getElementById("detail-impact"),
   detailPriorityReason: document.getElementById("detail-priority-reason"),
   detailPriorityScore: document.getElementById("detail-priority-score"),
+  dumpCharCount: document.getElementById("dump-char-count"),
+  thinkingOverlay: document.getElementById("thinking-overlay"),
   detailSplit: document.getElementById("detail-split"),
   detailSubtasks: document.getElementById("detail-subtasks"),
   detailTaskStart: document.getElementById("detail-task-start"),
@@ -102,6 +106,9 @@ const dragState = {
   resizeId: null,
   progressId: null,
   progressRect: null,
+  stableLaneCount: 0,
+  stableLaneMap: null,
+  stableTaskIds: null,
   startY: 0,
   startMinutes: 0,
   startTopMinutes: 0,
@@ -357,10 +364,10 @@ function splitTask(id) {
     })
   );
   state.tasks.splice(taskIndex, 1, ...splitTasks);
-  state.selectedTaskId = splitTasks[0].id;
+  state.selectedTaskId = null;
   saveState();
   render();
-  openTaskDetails(splitTasks[0].id);
+  closeDrawer(els.taskDetailsPanel);
   return splitTasks;
 }
 
@@ -547,8 +554,30 @@ function toggleDayTimer() {
   }
 }
 
+function scoreToLabel(score) {
+  if (score >= 76) return "CRITICAL";
+  if (score >= 51) return "HIGH";
+  if (score >= 26) return "MEDIUM";
+  return "LOW";
+}
+
+function labelToScore(label) {
+  switch (label) {
+    case "CRITICAL": return 88;
+    case "HIGH": return 63;
+    case "MEDIUM": return 38;
+    default: return 13;
+  }
+}
+
+function updateDumpCharCount() {
+  const len = els.brainDump.value.length;
+  els.dumpCharCount.textContent = `${len} / 1800`;
+  els.dumpCharCount.classList.toggle("char-count-near-limit", len >= 1600);
+}
+
 function priorityLabel(task) {
-  return `P${task.priorityScore} | Impact ${task.impact}/5 | Urgency ${task.urgency}/5`;
+  return `${scoreToLabel(task.priorityScore)} | Impact ${task.impact}/5 | Urgency ${task.urgency}/5`;
 }
 
 function getSubtaskProgress(task) {
@@ -566,13 +595,28 @@ function formatSubtaskProgress(task, compact = false) {
 }
 
 function taskOverlaps(a, b) {
-  return a.startMinutes < b.startMinutes + b.minutes && b.startMinutes < a.startMinutes + a.minutes;
+  return a.startMinutes < getTaskVisualEndMinutes(b) && b.startMinutes < getTaskVisualEndMinutes(a);
 }
 
-function buildCalendarLayout() {
-  const sorted = [...state.tasks].sort((a, b) => {
+function getOverlapMinutes(a, b) {
+  if (!taskOverlaps(a, b)) return 0;
+  return Math.min(getTaskVisualEndMinutes(a), getTaskVisualEndMinutes(b)) -
+    Math.max(a.startMinutes, b.startMinutes);
+}
+
+function getTaskVisualEndMinutes(task) {
+  const visualMinutes = Math.max(
+    task.minutes,
+    CALENDAR_BLOCK_MIN_HEIGHT / getPixelsPerMinute()
+  );
+  return task.startMinutes + visualMinutes;
+}
+
+function buildCalendarLayout(tasks = state.tasks) {
+  const sorted = [...tasks].sort((a, b) => {
     if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
-    return b.minutes - a.minutes;
+    if (b.minutes !== a.minutes) return b.minutes - a.minutes;
+    return String(a.id).localeCompare(String(b.id));
   });
   const layout = new Map();
   const cluster = [];
@@ -588,18 +632,58 @@ function buildCalendarLayout() {
   sorted.forEach((task) => {
     if (!cluster.length || task.startMinutes < clusterEnd) {
       cluster.push(task);
-      clusterEnd = Math.max(clusterEnd, task.startMinutes + task.minutes);
+      clusterEnd = Math.max(clusterEnd, getTaskVisualEndMinutes(task));
       return;
     }
     flushCluster();
     cluster.push(task);
-    clusterEnd = task.startMinutes + task.minutes;
+    clusterEnd = getTaskVisualEndMinutes(task);
   });
   flushCluster();
   return layout;
 }
 
+function getOverlapClusterIds(taskId, tasks = state.tasks) {
+  const ids = new Set([taskId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    tasks.forEach((task) => {
+      if (ids.has(task.id)) return;
+      const overlapsCluster = tasks.some((other) =>
+        ids.has(other.id) && taskOverlaps(task, other)
+      );
+      if (!overlapsCluster) return;
+      ids.add(task.id);
+      changed = true;
+    });
+  }
+  return ids;
+}
+
 function assignClusterLanes(cluster, layout) {
+  const maxOverlapMinutes = cluster.reduce((max, task, index) => {
+    const taskMax = cluster.slice(index + 1).reduce(
+      (pairMax, other) => Math.max(pairMax, getOverlapMinutes(task, other)),
+      0
+    );
+    return Math.max(max, taskMax);
+  }, 0);
+  const useCompactOverlap = cluster.length > 1 && maxOverlapMinutes <= COLUMN_OVERLAP_MINUTES;
+  if (useCompactOverlap) {
+    cluster.forEach((task, index) => {
+      const hasConflict = cluster.some((other) => other.id !== task.id && taskOverlaps(task, other));
+      layout.set(task.id, {
+        compactOffset: hasConflict ? Math.min(index, 3) * COMPACT_OVERLAP_OFFSET_PX : 0,
+        hasConflict,
+        laneCount: 1,
+        laneIndex: 0,
+        zIndex: 1 + index,
+      });
+    });
+    return;
+  }
+
   const lanes = [];
   cluster.forEach((task) => {
     let laneIndex = lanes.findIndex((laneEnd) => laneEnd <= task.startMinutes);
@@ -607,7 +691,7 @@ function assignClusterLanes(cluster, layout) {
       laneIndex = lanes.length;
       lanes.push(0);
     }
-    lanes[laneIndex] = task.startMinutes + task.minutes;
+    lanes[laneIndex] = getTaskVisualEndMinutes(task);
     layout.set(task.id, {
       hasConflict: cluster.length > 1,
       laneCount: cluster.length > 1 ? lanes.length : 1,
@@ -620,6 +704,73 @@ function assignClusterLanes(cluster, layout) {
     const item = layout.get(task.id);
     item.laneCount = laneCount;
     item.hasConflict = cluster.some((other) => other.id !== task.id && taskOverlaps(task, other));
+  });
+}
+
+function getMaxCalendarLaneCount(tasks = state.tasks) {
+  return Math.max(
+    1,
+    ...Array.from(buildCalendarLayout(tasks).values()).map((item) => item.laneCount || 1)
+  );
+}
+
+function canMoveTaskToStart(taskId, nextStartMinutes) {
+  const tasks = state.tasks.map((task) =>
+    task.id === taskId
+      ? { ...task, startMinutes: nextStartMinutes }
+      : task
+  );
+  return getMaxCalendarLaneCount(tasks) <= 3;
+}
+
+function captureStableDragLanes(task) {
+  const layout = buildCalendarLayout();
+  const taskLayout = layout.get(task.id);
+  if (!taskLayout || taskLayout.compactOffset || taskLayout.laneCount <= 1) {
+    dragState.stableLaneCount = 0;
+    dragState.stableLaneMap = null;
+    dragState.stableTaskIds = null;
+    return;
+  }
+
+  const clusterIds = getOverlapClusterIds(task.id);
+  const laneMap = new Map();
+  clusterIds.forEach((id) => {
+    const item = layout.get(id);
+    if (item && !item.compactOffset && item.laneCount === taskLayout.laneCount) {
+      laneMap.set(id, item.laneIndex);
+    }
+  });
+
+  dragState.stableLaneCount = taskLayout.laneCount;
+  dragState.stableLaneMap = laneMap;
+  dragState.stableTaskIds = clusterIds;
+}
+
+function applyStableDragLanes(layout) {
+  if (
+    !dragState.moveId ||
+    !dragState.stableLaneMap ||
+    !dragState.stableTaskIds ||
+    dragState.stableLaneCount <= 1
+  ) return;
+
+  const movingTask = state.tasks.find((task) => task.id === dragState.moveId);
+  if (!movingTask) return;
+  const stillOverlapsStableCluster = state.tasks.some((task) =>
+    task.id !== movingTask.id &&
+    dragState.stableTaskIds.has(task.id) &&
+    taskOverlaps(movingTask, task)
+  );
+  if (!stillOverlapsStableCluster) return;
+
+  dragState.stableLaneMap.forEach((laneIndex, id) => {
+    const item = layout.get(id);
+    if (!item) return;
+    item.compactOffset = 0;
+    item.hasConflict = true;
+    item.laneCount = dragState.stableLaneCount;
+    item.laneIndex = laneIndex;
   });
 }
 
@@ -669,16 +820,18 @@ function renderCalendar(options = {}) {
 
   const groupInfo = buildSplitGroupInfo();
   const calendarLayout = buildCalendarLayout();
+  applyStableDragLanes(calendarLayout);
 
   state.tasks.forEach((task) => {
     const block = document.createElement("div");
     block.className = "calendar-block";
     block.dataset.testid = "calendar-block";
     const group = groupInfo.get(task.id);
-    const layout = calendarLayout.get(task.id) || { hasConflict: false, laneCount: 1, laneIndex: 0 };
+    const layout = calendarLayout.get(task.id) || { compactOffset: 0, hasConflict: false, laneCount: 1, laneIndex: 0, zIndex: 1 };
     if (task.type === "meeting") block.classList.add("meeting");
     if (task.completed) block.classList.add("completed");
     if (!task.completed && task.elapsedMinutes >= task.minutes) block.classList.add("overdue");
+    if (timerState.activeId === task.id) block.classList.add("timer-active");
     if (group) block.classList.add("split-grouped");
     if (layout.hasConflict) block.classList.add("overlap-conflict");
     if (state.selectedTaskId === task.id) block.classList.add("selected");
@@ -686,11 +839,24 @@ function renderCalendar(options = {}) {
     block.draggable = false;
     const visualHeight = Math.max(CALENDAR_BLOCK_MIN_HEIGHT, task.minutes * getPixelsPerMinute());
     if (visualHeight <= 68) block.classList.add("short");
+
+    // Subtask progress tint
+    const { completed: stCompleted, total: stTotal } = getSubtaskProgress(task);
+    if (stTotal > 0 && !task.completed && stCompleted > 0) {
+      block.style.setProperty("--subtask-ratio", String((stCompleted / stTotal) * 0.55));
+    }
+
     const laneWidth = 100 / layout.laneCount;
     block.style.top = `${task.startMinutes * getPixelsPerMinute()}px`;
-    block.style.left = `${layout.laneIndex * laneWidth}%`;
-    block.style.width = `${laneWidth}%`;
+    if (layout.compactOffset) {
+      block.style.left = `${layout.compactOffset}px`;
+      block.style.width = `calc(100% - ${layout.compactOffset}px)`;
+    } else {
+      block.style.left = `${layout.laneIndex * laneWidth}%`;
+      block.style.width = `${laneWidth}%`;
+    }
     block.style.height = `${visualHeight}px`;
+    block.style.zIndex = String(layout.zIndex || 1);
 
     const content = document.createElement("div");
     content.className = "calendar-block-content";
@@ -725,7 +891,7 @@ function renderCalendar(options = {}) {
 
     const priorityChip = document.createElement("span");
     priorityChip.className = "priority-chip";
-    priorityChip.textContent = `P${task.priorityScore}`;
+    priorityChip.textContent = scoreToLabel(task.priorityScore);
 
     const topMeta = document.createElement("div");
     topMeta.className = "calendar-top-meta";
@@ -788,11 +954,15 @@ function renderCalendar(options = {}) {
       dragState.pointerMoved = false;
       dragState.startY = event.clientY;
       dragState.startTopMinutes = task.startMinutes;
+      captureStableDragLanes(task);
       block.setPointerCapture(event.pointerId);
     });
     block.addEventListener("pointerup", () => {
       dragState.moveId = null;
       dragState.isMoving = false;
+      dragState.stableLaneCount = 0;
+      dragState.stableLaneMap = null;
+      dragState.stableTaskIds = null;
     });
     resizeHandle.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -879,7 +1049,7 @@ function renderTaskDetails() {
   els.detailTaskDuration.value = String(task.minutes);
   els.detailTaskProgress.max = String(task.minutes);
   els.detailTaskProgress.value = String(task.elapsedMinutes);
-  els.detailPriorityScore.value = String(task.priorityScore);
+  els.detailPriorityScore.value = scoreToLabel(task.priorityScore);
   els.detailImpact.value = String(task.impact);
   els.detailUrgency.value = String(task.urgency);
   els.detailPriorityReason.value = task.priorityReason;
@@ -1306,6 +1476,7 @@ async function analyzeDump() {
   setStatus("Analyzing...");
   els.analyzeDump.disabled = true;
   els.reanalyzeDump.disabled = true;
+  els.thinkingOverlay.setAttribute("aria-hidden", "false");
   try {
     const result = await requestAIPlan(payload);
     const normalized = ai.normalizePlannerResponse(result);
@@ -1338,6 +1509,7 @@ async function analyzeDump() {
   } finally {
     els.analyzeDump.disabled = false;
     els.reanalyzeDump.disabled = false;
+    els.thinkingOverlay.setAttribute("aria-hidden", "true");
   }
 }
 
@@ -1718,10 +1890,12 @@ function setupDragAndResize() {
       const deltaMinutes =
         Math.round(deltaY / (pixelsPerMinute * MOVE_STEP_MINUTES)) *
         MOVE_STEP_MINUTES;
-      task.startMinutes = clampStartMinutes(
+      const nextStartMinutes = clampStartMinutes(
         dragState.startTopMinutes + deltaMinutes,
         task.minutes
       );
+      if (!canMoveTaskToStart(task.id, nextStartMinutes)) return;
+      task.startMinutes = nextStartMinutes;
       task.hasExplicitStart = true;
       saveState();
       renderCalendar({ skipDetails: true });
@@ -1753,6 +1927,9 @@ function setupDragAndResize() {
     dragState.isMoving = false;
     dragState.progressId = null;
     dragState.progressRect = null;
+    dragState.stableLaneCount = 0;
+    dragState.stableLaneMap = null;
+    dragState.stableTaskIds = null;
   });
 }
 
@@ -1763,8 +1940,10 @@ function setupEvents() {
   els.reanalyzeDump.addEventListener("click", analyzeDump);
   els.clearDump.addEventListener("click", () => {
     els.brainDump.value = "";
+    updateDumpCharCount();
     setStatus("");
   });
+  els.brainDump.addEventListener("input", updateDumpCharCount);
   els.toggleDay.addEventListener("click", toggleDayTimer);
   els.openSettings.addEventListener("click", () => openDrawer(els.settingsPanel));
   els.closeSettings.addEventListener("click", () => closeDrawer(els.settingsPanel));
@@ -1805,9 +1984,9 @@ function setupEvents() {
       task.completed = task.elapsedMinutes >= task.minutes;
     }, { render: "calendar" });
   });
-  els.detailPriorityScore.addEventListener("input", () => {
+  els.detailPriorityScore.addEventListener("change", () => {
     updateSelectedTask((task) => {
-      task.priorityScore = clampNumber(els.detailPriorityScore.value, 1, 100, task.priorityScore);
+      task.priorityScore = labelToScore(els.detailPriorityScore.value);
     }, { render: "calendar" });
   });
   els.detailImpact.addEventListener("input", () => {
@@ -1828,9 +2007,13 @@ function setupEvents() {
   els.detailToggleTimer.addEventListener("click", () => {
     const task = getSelectedTask();
     if (!task) return;
-    if (timerState.activeId === task.id) pauseTimer();
-    else startTimer(task.id);
-    renderTaskDetails();
+    if (timerState.activeId === task.id) {
+      pauseTimer();
+      renderTaskDetails();
+    } else {
+      startTimer(task.id);
+      closeTaskDetails();
+    }
   });
   els.detailToggleDone.addEventListener("click", () => {
     const task = getSelectedTask();

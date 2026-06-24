@@ -90,6 +90,372 @@ test("overlapping tasks are allowed and flagged", async ({ ui }) => {
   expect(second.overflow).toBe(false);
 });
 
+test("short incidental overlaps do not force narrow columns", async ({ ui }) => {
+  await ui.page.evaluate(() => {
+    localStorage.setItem(
+      "overrun_lite_state",
+      JSON.stringify({
+        tasks: [
+          {
+            id: "slight-a",
+            name: "First task",
+            minutes: 60,
+            type: "task",
+            startMinutes: 0,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+          {
+            id: "slight-b",
+            name: "Second task",
+            minutes: 60,
+            type: "task",
+            startMinutes: 55,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+          {
+            id: "slight-c",
+            name: "Third task",
+            minutes: 60,
+            type: "task",
+            startMinutes: 110,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+        ],
+        backlog: [],
+      })
+    );
+  });
+  await ui.page.reload();
+
+  const layerWidth = await ui.page.getByTestId("calendar-blocks").evaluate((layer) =>
+    layer.getBoundingClientRect().width
+  );
+  const first = await ui.calendar.blockMetrics(0);
+  const second = await ui.calendar.blockMetrics(1);
+  const third = await ui.calendar.blockMetrics(2);
+
+  expect(first.className).toContain("overlap-conflict");
+  expect(second.className).toContain("overlap-conflict");
+  expect(third.className).toContain("overlap-conflict");
+  expect(first.width).toBeGreaterThan(layerWidth * 0.9);
+  expect(second.width).toBeGreaterThan(layerWidth * 0.9);
+  expect(third.width).toBeGreaterThan(layerWidth * 0.9);
+  expect(first.overflow).toBe(false);
+  expect(second.overflow).toBe(false);
+  expect(third.overflow).toBe(false);
+});
+
+test("substantial overlaps keep distinct lanes regardless of storage order", async ({ ui }) => {
+  const tasks = [
+    {
+      id: "task-20",
+      name: "New task (part 2) (part 1)",
+      minutes: 60,
+      type: "task",
+      startMinutes: 210,
+      hasExplicitStart: true,
+      elapsedMinutes: 0,
+      completed: false,
+      priorityScore: 50,
+      urgency: 3,
+      impact: 3,
+      parentId: "task-1",
+      splitGroupId: "task-1",
+      splitPartIndex: 1,
+      splitPartCount: 2,
+      subtasks: [],
+    },
+    {
+      id: "task-21",
+      name: "New task (part 2) (part 2)",
+      minutes: 100,
+      type: "task",
+      startMinutes: 155,
+      hasExplicitStart: true,
+      elapsedMinutes: 0,
+      completed: false,
+      priorityScore: 50,
+      urgency: 3,
+      impact: 3,
+      parentId: "task-1",
+      splitGroupId: "task-1",
+      splitPartIndex: 2,
+      splitPartCount: 2,
+      subtasks: [],
+    },
+    {
+      id: "task-2",
+      name: "New task (part 1)",
+      minutes: 85,
+      type: "task",
+      startMinutes: 150,
+      hasExplicitStart: true,
+      elapsedMinutes: 0,
+      completed: false,
+      priorityScore: 50,
+      urgency: 3,
+      impact: 3,
+      parentId: "task-1",
+      splitGroupId: "task-1",
+      subtasks: [],
+    },
+  ];
+
+  await ui.page.evaluate((seedTasks) => {
+    localStorage.setItem("overrun_lite_state", JSON.stringify({ tasks: seedTasks, backlog: [] }));
+  }, tasks);
+  await ui.page.reload();
+
+  const layerWidth = await ui.page.getByTestId("calendar-blocks").evaluate((layer) =>
+    layer.getBoundingClientRect().width
+  );
+  const laneMetrics = await ui.page.getByTestId("calendar-block").evaluateAll((blocks) =>
+    blocks.map((block) => {
+      const rect = block.getBoundingClientRect();
+      return {
+        id: (block as HTMLElement).dataset.id,
+        left: Math.round(rect.left),
+        overflow: block.scrollHeight > block.clientHeight || block.scrollWidth > block.clientWidth,
+        width: Math.round(rect.width),
+      };
+    })
+  );
+  const laneLefts = new Set(laneMetrics.map((metric) => metric.left));
+
+  expect(laneMetrics).toHaveLength(3);
+  expect(laneLefts.size).toBe(3);
+  laneMetrics.forEach((metric) => {
+    expect(metric.width).toBeLessThan(layerWidth * 0.4);
+    expect(metric.overflow).toBe(false);
+  });
+
+  const movingBlock = ui.page.locator('[data-id="task-2"]');
+  const movingBox = await movingBlock.boundingBox();
+  if (!movingBox) throw new Error("Expected task-2 to be visible.");
+  await ui.page.mouse.move(movingBox.x + movingBox.width / 2, movingBox.y + 20);
+  await ui.page.mouse.down();
+  await ui.page.mouse.move(movingBox.x + movingBox.width / 2, movingBox.y - 10, { steps: 4 });
+  await ui.page.mouse.up();
+
+  const afterMoveMetrics = await ui.page.getByTestId("calendar-block").evaluateAll((blocks) =>
+    blocks.map((block) => {
+      const rect = block.getBoundingClientRect();
+      return {
+        id: (block as HTMLElement).dataset.id,
+        left: Math.round(rect.left),
+        overflow: block.scrollHeight > block.clientHeight || block.scrollWidth > block.clientWidth,
+        width: Math.round(rect.width),
+      };
+    })
+  );
+  const afterMoveLefts = new Set(afterMoveMetrics.map((metric) => metric.left));
+  expect(afterMoveLefts.size).toBe(3);
+  afterMoveMetrics.forEach((metric) => {
+    expect(metric.width).toBeLessThan(layerWidth * 0.4);
+    expect(metric.overflow).toBe(false);
+  });
+});
+
+test("dragged task keeps its lane while still overlapping its original cluster", async ({ ui }) => {
+  await ui.page.evaluate(() => {
+    localStorage.setItem(
+      "overrun_lite_state",
+      JSON.stringify({
+        tasks: [
+          {
+            id: "task-20",
+            name: "New task (part 2) (part 1)",
+            minutes: 60,
+            type: "task",
+            startMinutes: 135,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            parentId: "task-1",
+            splitGroupId: "task-1",
+            splitPartIndex: 1,
+            splitPartCount: 2,
+            subtasks: [],
+          },
+          {
+            id: "task-21",
+            name: "New task (part 2) (part 2)",
+            minutes: 100,
+            type: "task",
+            startMinutes: 135,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            parentId: "task-1",
+            splitGroupId: "task-1",
+            splitPartIndex: 2,
+            splitPartCount: 2,
+            subtasks: [],
+          },
+          {
+            id: "task-2",
+            name: "New task (part 1)",
+            minutes: 85,
+            type: "task",
+            startMinutes: 135,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            parentId: "task-1",
+            splitGroupId: "task-1",
+            subtasks: [],
+          },
+        ],
+        backlog: [],
+      })
+    );
+  });
+  await ui.page.reload();
+
+  const middleBlock = ui.page.locator('[data-id="task-2"]');
+  const beforeLeft = await middleBlock.evaluate((block) =>
+    Math.round(block.getBoundingClientRect().left)
+  );
+  const box = await middleBlock.boundingBox();
+  if (!box) throw new Error("Expected task-2 to be visible.");
+
+  await ui.page.mouse.move(box.x + box.width / 2, box.y + 20);
+  await ui.page.mouse.down();
+  await ui.page.mouse.move(box.x + box.width / 2, box.y - 18, { steps: 5 });
+
+  const duringLeft = await middleBlock.evaluate((block) =>
+    Math.round(block.getBoundingClientRect().left)
+  );
+  expect(duringLeft).toBe(beforeLeft);
+
+  await ui.page.mouse.up();
+});
+
+test("dragging cannot create a fourth substantial overlap column", async ({ ui }) => {
+  await ui.page.evaluate(() => {
+    localStorage.setItem(
+      "overrun_lite_state",
+      JSON.stringify({
+        tasks: [
+          {
+            id: "lane-a",
+            name: "Lane A",
+            minutes: 100,
+            type: "task",
+            startMinutes: 135,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+          {
+            id: "lane-b",
+            name: "Lane B",
+            minutes: 85,
+            type: "task",
+            startMinutes: 135,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+          {
+            id: "lane-c",
+            name: "Lane C",
+            minutes: 60,
+            type: "task",
+            startMinutes: 135,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+          {
+            id: "moving-fourth",
+            name: "Moving fourth",
+            minutes: 60,
+            type: "task",
+            startMinutes: 300,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            subtasks: [],
+          },
+        ],
+        backlog: [],
+      })
+    );
+  });
+  await ui.page.reload();
+
+  const movingBlock = ui.page.locator('[data-id="moving-fourth"]');
+  const box = await movingBlock.boundingBox();
+  if (!box) throw new Error("Expected moving-fourth to be visible.");
+
+  await ui.page.mouse.move(box.x + box.width / 2, box.y + 20);
+  await ui.page.mouse.down();
+  await ui.page.mouse.move(box.x + box.width / 2, box.y - 170, { steps: 12 });
+  await ui.page.mouse.up();
+
+  const storedStart = await ui.page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem("overrun_lite_state") || "{}");
+    return stored.tasks.find((task: { id: string }) => task.id === "moving-fourth").startMinutes;
+  });
+  expect(storedStart).toBeGreaterThanOrEqual(235);
+
+  const maxVisibleColumns = await ui.page.getByTestId("calendar-block").evaluateAll((blocks) => {
+    const topGroups = new Map<number, Set<number>>();
+    blocks.forEach((block) => {
+      const rect = block.getBoundingClientRect();
+      const top = Math.round(rect.top / 5) * 5;
+      const group = topGroups.get(top) || new Set<number>();
+      group.add(Math.round(rect.left));
+      topGroups.set(top, group);
+    });
+    return Math.max(...Array.from(topGroups.values()).map((lefts) => lefts.size));
+  });
+  expect(maxVisibleColumns).toBeLessThanOrEqual(3);
+});
+
 test("split creates grouped compact task blocks", async ({ ui }) => {
   await ui.calendar.addTask();
   await ui.calendar.openTask(0);

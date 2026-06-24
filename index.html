@@ -47,12 +47,14 @@
             id="brain-dump"
             data-testid="brain-dump"
             rows="7"
+            maxlength="1800"
             placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
           ></textarea>
           <div class="inbox-actions">
             <button id="analyze-dump" class="primary" data-testid="analyze-dump">Analyze dump</button>
             <button id="clear-dump" class="ghost" data-testid="clear-dump">Clear</button>
             <span id="ai-status" class="status-line" role="status" data-testid="ai-status"></span>
+            <span id="dump-char-count" class="char-count">0 / 1800</span>
           </div>
         </div>
       </div>
@@ -221,7 +223,12 @@
 
         <div class="detail-grid">
           <label for="detail-priority-score">Priority
-            <input id="detail-priority-score" data-testid="detail-priority-score" type="number" min="1" max="100" />
+            <select id="detail-priority-score" data-testid="detail-priority-score">
+              <option value="LOW">LOW</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="HIGH">HIGH</option>
+              <option value="CRITICAL">CRITICAL</option>
+            </select>
           </label>
           <label for="detail-impact">Impact
             <input id="detail-impact" data-testid="detail-impact" type="number" min="1" max="5" />
@@ -264,6 +271,11 @@
         </div>
       </div>
     </template>
+
+    <div id="thinking-overlay" class="thinking-overlay" aria-hidden="true">
+      <p class="thinking-text">Thinking<span class="dot d1">.</span><span class="dot d2">.</span><span class="dot d3">.</span></p>
+      <p class="thinking-notice">DO NOT CLOSE THIS TAB</p>
+    </div>
 
     <script src="aiContract.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
