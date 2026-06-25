@@ -21,7 +21,8 @@ The planner supports two AI targets:
 - `Vercel API`: the browser calls `/api/plan`. Configure `OPENAI_API_KEY`, optional `OPENAI_MODEL`, and optional `OPENAI_BASE_URL` in the Vercel environment.
 - `Local OpenAI-compatible`: the browser calls `{baseUrl}/chat/completions` directly. The local server must allow browser CORS. This mode is intended for local demos with servers such as LM Studio, Ollama-compatible OpenAI endpoints, or other OpenAI-compatible local gateways.
 
-AI output is always reviewed before it is applied to the backlog.
+AI output is always reviewed before it is applied. Brain dumps create draft
+backlog tasks, and task breakdown creates draft subtasks for the selected task.
 
 ## Local LLM with MLX
 
@@ -43,7 +44,8 @@ Then open `Settings` in the app and use:
 
 The app sends Chat Completions-compatible requests to `/chat/completions`.
 Small local models may return non-standard task JSON, so the client accepts common
-aliases such as `task`, `priority`, `timeEstimate`, and `currentTasks`.
+aliases such as `task`, `priority`, `timeEstimate`, `steps`, `items`, and
+`currentTasks`.
 
 ## Google Calendar import
 
@@ -59,6 +61,12 @@ To use it:
 Imported events keep Google source IDs in localStorage so repeated imports skip duplicates.
 
 ## Tests
+
+Fast syntax and AI contract checks:
+
+```sh
+npm test
+```
 
 End-to-end tests use Playwright Test with a custom `{ ui }` fixture:
 

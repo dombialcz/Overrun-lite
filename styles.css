@@ -738,6 +738,10 @@ textarea {
   pointer-events: none;
 }
 
+.review-drawer {
+  z-index: 11;
+}
+
 .drawer-card {
   width: min(440px, 100vw);
   min-height: 100vh;
@@ -854,6 +858,14 @@ textarea {
 
 .proposal-grid label:last-child {
   grid-column: 1 / -1;
+}
+
+.breakdown-grid {
+  grid-template-columns: 84px minmax(180px, 1fr) 110px;
+}
+
+.breakdown-grid label:last-child {
+  grid-column: auto;
 }
 
 .proposal-subtasks {

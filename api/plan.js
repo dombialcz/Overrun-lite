@@ -1,6 +1,8 @@
 const {
+  breakdownResponseSchema,
   buildPlannerMessages,
   extractJson,
+  normalizeBreakdownResponse,
   normalizePlannerResponse,
   plannerResponseSchema,
 } = require("../aiContract");
@@ -44,6 +46,21 @@ module.exports = async function handler(req, res) {
 
 function normalizeRequestBody(body) {
   const payload = typeof body === "string" ? JSON.parse(body) : body || {};
+  if (payload.mode === "task_breakdown") {
+    const task = payload.task && typeof payload.task === "object" ? payload.task : null;
+    if (!task || !String(task.title || task.name || "").trim()) {
+      throw badRequest("Task is required.");
+    }
+    return {
+      mode: "task_breakdown",
+      task,
+      instructions: String(payload.instructions || ""),
+      granularity: ["small", "medium", "large"].includes(payload.granularity)
+        ? payload.granularity
+        : "medium",
+      applyMode: payload.applyMode === "replace" ? "replace" : "append",
+    };
+  }
   if (payload.mode !== "brain_dump") {
     throw badRequest("Unsupported planner mode.");
   }
@@ -61,14 +78,21 @@ function normalizeRequestBody(body) {
 
 async function requestPlanner(payload, config) {
   const messages = buildPlannerMessages(payload);
-  const response = await postChatCompletion(config, messages, true).catch(async (err) => {
+  const schema = payload.mode === "task_breakdown" ? breakdownResponseSchema : plannerResponseSchema;
+  const schemaName = payload.mode === "task_breakdown"
+    ? "overrun_breakdown_response"
+    : "overrun_planner_response";
+  const response = await postChatCompletion(config, messages, true, schema, schemaName).catch(async (err) => {
     if (!err.canRetryWithoutSchema) throw err;
-    return postChatCompletion(config, messages, false);
+    return postChatCompletion(config, messages, false, schema, schemaName);
   });
-  return normalizePlannerResponse(extractJson(response));
+  const parsed = extractJson(response);
+  return payload.mode === "task_breakdown"
+    ? normalizeBreakdownResponse(parsed)
+    : normalizePlannerResponse(parsed);
 }
 
-async function postChatCompletion(config, messages, useSchema) {
+async function postChatCompletion(config, messages, useSchema, schema = plannerResponseSchema, schemaName = "overrun_planner_response") {
   const body = {
     model: config.model,
     messages,
@@ -79,9 +103,9 @@ async function postChatCompletion(config, messages, useSchema) {
     body.response_format = {
       type: "json_schema",
       json_schema: {
-        name: "overrun_planner_response",
+        name: schemaName,
         strict: true,
-        schema: plannerResponseSchema,
+        schema,
       },
     };
   } else {

@@ -80,7 +80,45 @@
     },
   };
 
-  const systemPrompt = [
+  const breakdownResponseSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["summary", "subtasks", "questions", "warnings"],
+    properties: {
+      summary: { type: "string" },
+      subtasks: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "minutes"],
+          properties: {
+            title: { type: "string" },
+            minutes: { type: "integer", minimum: 5, maximum: 240 },
+          },
+        },
+      },
+      questions: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "question", "reason"],
+          properties: {
+            id: { type: "string" },
+            question: { type: "string" },
+            reason: { type: "string" },
+          },
+        },
+      },
+      warnings: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+  };
+
+  const plannerSystemPrompt = [
     "You are Overrun Lite, an AI planning assistant.",
     "Turn messy brain dumps into concrete tasks for a local-first planner.",
     "Optimize backlog ranking for impact plus urgency.",
@@ -90,11 +128,22 @@
     "Return only valid JSON matching the requested schema.",
   ].join(" ");
 
+  const breakdownSystemPrompt = [
+    "You are Overrun Lite, an AI task breakdown assistant.",
+    "Break one existing task into concrete, reviewable subtasks for a local-first planner.",
+    "Respect the user's instructions, selected granularity, existing subtasks, and time budget.",
+    "Do not mark anything complete. Do not schedule the user's day.",
+    "Return only valid JSON matching the requested schema.",
+  ].join(" ");
+
   function buildPlannerMessages(payload) {
+    if (payload && payload.mode === "task_breakdown") {
+      return buildBreakdownMessages(payload);
+    }
     return [
       {
         role: "system",
-        content: systemPrompt,
+        content: plannerSystemPrompt,
       },
       {
         role: "user",
@@ -120,6 +169,41 @@
     ];
   }
 
+  function buildBreakdownMessages(payload) {
+    const granularity = ["small", "medium", "large"].includes(payload.granularity)
+      ? payload.granularity
+      : "medium";
+    const applyMode = payload.applyMode === "replace" ? "replace" : "append";
+    return [
+      {
+        role: "system",
+        content: breakdownSystemPrompt,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            mode: "task_breakdown",
+            task: payload.task || {},
+            instructions: String(payload.instructions || ""),
+            granularity,
+            applyMode,
+            guidance: {
+              small: "Prefer 2-4 larger subtasks.",
+              medium: "Prefer 4-6 practical subtasks.",
+              large: "Prefer 6-8 detailed subtasks.",
+              minimumSubtaskMinutes: 5,
+              maximumSubtaskMinutes: 240,
+              preserveExistingWhenAppending: applyMode === "append",
+            },
+          },
+          null,
+          2
+        ),
+      },
+    ];
+  }
+
   function createEmptyPlannerResponse(summary) {
     return {
       summary: summary || "",
@@ -131,6 +215,9 @@
   }
 
   function normalizePlannerResponse(value) {
+    if (value && value.mode === "task_breakdown") {
+      return normalizeBreakdownResponse(value);
+    }
     const source = value && typeof value === "object" ? value : {};
     const proposedTasks = collectTaskProposals(source);
     return {
@@ -151,6 +238,7 @@
   function collectTaskProposals(source) {
     if (Array.isArray(source.proposedTasks)) return source.proposedTasks;
     if (Array.isArray(source.tasks)) return source.tasks;
+    if (source.newTask && typeof source.newTask === "object") return [source.newTask];
     return [
       ...(Array.isArray(source.currentTasks) ? source.currentTasks : []),
       ...(Array.isArray(source.currentBacklog) ? source.currentBacklog : []),
@@ -172,8 +260,38 @@
       impact: clampInt(item.impact, 1, 5, 3),
       subtasks: Array.isArray(item.subtasks)
         ? item.subtasks.map(normalizeSubtask).filter(Boolean)
+      : [],
+    };
+  }
+
+  function normalizeBreakdownResponse(value) {
+    const source = value && typeof value === "object" ? value : {};
+    const subtasks = collectSubtasks(source);
+    return {
+      summary: String(source.summary || ""),
+      subtasks: subtasks.map(normalizeSubtask).filter(Boolean),
+      questions: Array.isArray(source.questions)
+        ? source.questions.map(normalizeQuestion).filter(Boolean)
+        : [],
+      warnings: Array.isArray(source.warnings)
+        ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
         : [],
     };
+  }
+
+  function collectSubtasks(source) {
+    if (Array.isArray(source.subtasks)) return source.subtasks;
+    if (Array.isArray(source.steps)) return source.steps;
+    if (Array.isArray(source.items)) return source.items;
+    if (Array.isArray(source.checklist)) return source.checklist;
+    if (Array.isArray(source.tasks)) return source.tasks;
+    if (source.breakdown && typeof source.breakdown === "object") {
+      return collectSubtasks(source.breakdown);
+    }
+    if (source.newTask && typeof source.newTask === "object") {
+      return collectSubtasks(source.newTask);
+    }
+    return [];
   }
 
   function normalizeSubtask(item) {
@@ -239,7 +357,9 @@
   return {
     plannerResponseSchema,
     buildPlannerMessages,
+    breakdownResponseSchema,
     createEmptyPlannerResponse,
+    normalizeBreakdownResponse,
     normalizePlannerResponse,
     extractJson,
   };

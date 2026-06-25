@@ -118,7 +118,7 @@
         <div class="drawer-header">
           <div>
             <p class="eyebrow">AI review</p>
-            <h2>Review before applying</h2>
+            <h2 id="review-heading" data-testid="review-heading">Review before applying</h2>
           </div>
           <button id="close-review" class="ghost" data-testid="close-review">Close</button>
         </div>
@@ -246,6 +246,35 @@
             <h3>Subtasks</h3>
           </div>
           <div id="detail-subtasks" class="detail-subtasks" data-testid="detail-subtasks"></div>
+        </section>
+
+        <section class="detail-section">
+          <div class="section-heading compact">
+            <h3>AI breakdown</h3>
+          </div>
+          <label for="detail-breakdown-instructions">Breakdown instructions</label>
+          <textarea
+            id="detail-breakdown-instructions"
+            data-testid="detail-breakdown-instructions"
+            rows="3"
+            placeholder="Optional: focus on implementation steps, testing, or a specific constraint..."
+          ></textarea>
+          <div class="detail-grid">
+            <label for="detail-breakdown-granularity">Granularity
+              <select id="detail-breakdown-granularity" data-testid="detail-breakdown-granularity">
+                <option value="small">Small</option>
+                <option value="medium" selected>Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </label>
+            <label for="detail-breakdown-apply-mode">Apply mode
+              <select id="detail-breakdown-apply-mode" data-testid="detail-breakdown-apply-mode">
+                <option value="append" selected>Append</option>
+                <option value="replace">Replace</option>
+              </select>
+            </label>
+          </div>
+          <button id="detail-breakdown-ai" class="ghost" data-testid="detail-breakdown-ai">Break down with AI</button>
         </section>
 
         <div class="drawer-actions detail-actions">

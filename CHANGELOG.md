@@ -8,6 +8,9 @@ All notable changes to Overrun Lite are documented here.
 
 ### Added
 - **GitHub Pages deployment** — project is now live at https://dombialcz.github.io/Overrun-lite/
+- **AI task breakdown** — selected tasks can now request AI-proposed subtasks with compact instructions, granularity, append/replace controls, and review-before-apply.
+- **AI contract tests** — added fast Node tests for planner and breakdown parsing/normalization behavior.
+- **Local LLM eval notes** — documented open questions for a future real local-model evaluation harness.
 
 ### Changed
 - **Priority labels** — priority score (1–100) is now displayed as a human-readable label everywhere: `LOW` (1–25), `MEDIUM` (26–50), `HIGH` (51–75), `CRITICAL` (76–100). The task details drawer now shows a select dropdown instead of a number input.

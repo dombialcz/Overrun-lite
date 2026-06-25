@@ -51,6 +51,10 @@ const els = {
   closeTaskDetails: document.getElementById("close-task-details"),
   dayTimer: document.getElementById("day-timer"),
   detailBacklog: document.getElementById("detail-backlog"),
+  detailBreakdownAI: document.getElementById("detail-breakdown-ai"),
+  detailBreakdownApplyMode: document.getElementById("detail-breakdown-apply-mode"),
+  detailBreakdownGranularity: document.getElementById("detail-breakdown-granularity"),
+  detailBreakdownInstructions: document.getElementById("detail-breakdown-instructions"),
   detailDelete: document.getElementById("detail-delete"),
   detailHeading: document.getElementById("detail-heading"),
   detailImpact: document.getElementById("detail-impact"),
@@ -86,6 +90,7 @@ const els = {
   openSettings: document.getElementById("open-settings"),
   providerMode: document.getElementById("provider-mode"),
   reanalyzeDump: document.getElementById("reanalyze-dump"),
+  reviewHeading: document.getElementById("review-heading"),
   reviewPanel: document.getElementById("review-panel"),
   reviewQuestions: document.getElementById("review-questions"),
   reviewSummary: document.getElementById("review-summary"),
@@ -1117,6 +1122,10 @@ function renderReview() {
   els.reviewPanel.setAttribute("aria-hidden", hasDraft ? "false" : "true");
   if (!draft) return;
 
+  const isBreakdownDraft = draft.type === "task_breakdown";
+  els.reviewHeading.textContent = isBreakdownDraft ? "Review task breakdown" : "Review before applying";
+  els.applyReview.textContent = isBreakdownDraft ? "Apply subtasks" : "Apply accepted tasks";
+  els.reanalyzeDump.hidden = isBreakdownDraft;
   els.reviewSummary.textContent = draft.summary || "Review the AI proposal before applying it.";
   els.reviewWarnings.innerHTML = "";
   draft.warnings.forEach((warning) => {
@@ -1127,18 +1136,25 @@ function renderReview() {
   });
 
   renderReviewQuestions(draft);
-  renderReviewTasks(draft);
+  if (isBreakdownDraft) {
+    renderReviewSubtasks(draft);
+  } else {
+    renderReviewTasks(draft);
+  }
 }
 
 function renderReviewQuestions(draft) {
   els.reviewQuestions.innerHTML = "";
+  if (!draft.answers) draft.answers = {};
   const heading = document.createElement("h3");
   heading.textContent = "Follow-up questions";
   els.reviewQuestions.appendChild(heading);
   if (!draft.questions.length) {
     const empty = document.createElement("p");
     empty.className = "helper";
-    empty.textContent = "No follow-up questions for this dump.";
+    empty.textContent = draft.type === "task_breakdown"
+      ? "No follow-up questions for this breakdown."
+      : "No follow-up questions for this dump.";
     els.reviewQuestions.appendChild(empty);
     return;
   }
@@ -1354,6 +1370,76 @@ function renderReviewTasks(draft) {
   });
 }
 
+function renderReviewSubtasks(draft) {
+  els.reviewTasks.innerHTML = "";
+  const heading = document.createElement("h3");
+  heading.textContent = "Proposed subtasks";
+  els.reviewTasks.appendChild(heading);
+  if (!draft.subtasks.length) {
+    const empty = document.createElement("p");
+    empty.className = "helper";
+    empty.textContent = "No subtasks were proposed yet.";
+    els.reviewTasks.appendChild(empty);
+    return;
+  }
+
+  draft.subtasks.forEach((subtask, index) => {
+    const card = document.createElement("article");
+    card.className = "proposal-card";
+    card.dataset.testid = "breakdown-subtask";
+    if (!subtask.accepted) card.classList.add("muted-card");
+
+    const accept = document.createElement("input");
+    accept.type = "checkbox";
+    accept.checked = subtask.accepted;
+    accept.addEventListener("change", () => {
+      subtask.accepted = accept.checked;
+      saveReviewDraft();
+      renderReviewSubtasks(draft);
+    });
+
+    const title = document.createElement("input");
+    title.type = "text";
+    title.value = subtask.title;
+    title.dataset.testid = "breakdown-subtask-title";
+    title.addEventListener("input", () => {
+      subtask.title = title.value;
+      saveReviewDraft();
+    });
+
+    const minutes = createNumberInput(subtask.minutes, 5, 240, (value) => {
+      subtask.minutes = value;
+      saveReviewDraft();
+    });
+    minutes.dataset.testid = "breakdown-subtask-minutes";
+
+    const remove = makeButton("Remove", () => {
+      draft.subtasks.splice(index, 1);
+      saveReviewDraft();
+      renderReviewSubtasks(draft);
+    });
+
+    const grid = document.createElement("div");
+    grid.className = "proposal-grid breakdown-grid";
+    grid.append(
+      makeField("Accept", accept),
+      makeField("Subtask", title),
+      makeField("Minutes", minutes)
+    );
+
+    card.append(grid, remove);
+    els.reviewTasks.appendChild(card);
+  });
+
+  const addSubtask = makeButton("Add subtask", () => {
+    draft.subtasks.push({ title: "New action", minutes: 25, accepted: true });
+    saveReviewDraft();
+    renderReviewSubtasks(draft);
+  });
+  addSubtask.dataset.testid = "add-breakdown-subtask";
+  els.reviewTasks.appendChild(addSubtask);
+}
+
 function makeField(labelText, control) {
   const label = document.createElement("label");
   label.textContent = labelText;
@@ -1410,6 +1496,18 @@ function createPlannerPayload() {
     answers: state.reviewDraft ? state.reviewDraft.answers : {},
     currentTasks: state.tasks.map(summarizeTaskForAI),
     currentBacklog: state.backlog.map(summarizeTaskForAI),
+  };
+}
+
+function createBreakdownPayload(task) {
+  return {
+    mode: "task_breakdown",
+    task: summarizeTaskForAI(task),
+    instructions: els.detailBreakdownInstructions.value.trim(),
+    granularity: ["small", "medium", "large"].includes(els.detailBreakdownGranularity.value)
+      ? els.detailBreakdownGranularity.value
+      : "medium",
+    applyMode: els.detailBreakdownApplyMode.value === "replace" ? "replace" : "append",
   };
 }
 
@@ -1513,6 +1611,46 @@ async function analyzeDump() {
   }
 }
 
+async function analyzeTaskBreakdown() {
+  const task = getSelectedTask();
+  if (!task) {
+    setStatus("Select a task before requesting a breakdown.", true);
+    return;
+  }
+
+  const payload = createBreakdownPayload(task);
+  setStatus("Breaking down task...");
+  els.detailBreakdownAI.disabled = true;
+  els.thinkingOverlay.setAttribute("aria-hidden", "false");
+  try {
+    const result = await requestAIPlan(payload);
+    const normalized = ai.normalizeBreakdownResponse(result);
+    state.reviewDraft = {
+      type: "task_breakdown",
+      id: createId("breakdown"),
+      taskId: task.id,
+      taskTitle: task.name,
+      applyMode: payload.applyMode,
+      summary: normalized.summary || `Review proposed subtasks for ${task.name}.`,
+      warnings: normalized.warnings,
+      questions: normalized.questions,
+      subtasks: normalized.subtasks.map((subtask) => ({
+        ...subtask,
+        accepted: true,
+      })),
+    };
+    saveReviewDraft();
+    setStatus("Breakdown ready for review.");
+    openDrawer(els.reviewPanel);
+    renderReview();
+  } catch (err) {
+    setStatus(readableAIError(err), true);
+  } finally {
+    els.detailBreakdownAI.disabled = false;
+    els.thinkingOverlay.setAttribute("aria-hidden", "true");
+  }
+}
+
 async function requestAIPlan(payload) {
   if (state.aiSettings.providerMode === "local") {
     return requestLocalAI(payload);
@@ -1544,10 +1682,18 @@ async function requestLocalAI(payload) {
     if (!err.canRetryWithoutSchema) throw err;
     return postLocalChatCompletion(baseUrl, model, messages, false);
   });
-  return ai.normalizePlannerResponse(ai.extractJson(content));
+  const parsed = ai.extractJson(content);
+  return payload.mode === "task_breakdown"
+    ? ai.normalizeBreakdownResponse(parsed)
+    : ai.normalizePlannerResponse(parsed);
 }
 
 async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
+  const isBreakdown = messages.some((message) =>
+    String(message.content || "").includes('"mode": "task_breakdown"')
+  );
+  const schema = isBreakdown ? ai.breakdownResponseSchema : ai.plannerResponseSchema;
+  const schemaName = isBreakdown ? "overrun_breakdown_response" : "overrun_planner_response";
   const body = {
     model,
     messages,
@@ -1557,9 +1703,9 @@ async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
       ? {
           type: "json_schema",
           json_schema: {
-            name: "overrun_planner_response",
+            name: schemaName,
             strict: true,
-            schema: ai.plannerResponseSchema,
+            schema,
           },
         }
       : { type: "json_object" },
@@ -1831,6 +1977,10 @@ function applyPriorityUpdates(updates) {
 function applyReviewDraft() {
   const draft = state.reviewDraft;
   if (!draft) return;
+  if (draft.type === "task_breakdown") {
+    applyBreakdownReviewDraft(draft);
+    return;
+  }
   const accepted = draft.proposedTasks.filter((task) => task.accepted && task.title.trim());
   accepted.forEach((proposal) => {
     const parent = createTask(proposal.title.trim(), proposal.minutes, "task", {
@@ -1851,6 +2001,32 @@ function applyReviewDraft() {
   saveState();
   saveReviewDraft();
   setStatus(`${accepted.length} task${accepted.length === 1 ? "" : "s"} added to backlog.`);
+  closeDrawer(els.reviewPanel);
+  render();
+}
+
+function applyBreakdownReviewDraft(draft) {
+  const task = [...state.tasks, ...state.backlog].find((item) => item.id === draft.taskId);
+  if (!task) {
+    setStatus("The task for this breakdown no longer exists.", true);
+    return;
+  }
+
+  const accepted = draft.subtasks.filter((subtask) => subtask.accepted && subtask.title.trim());
+  const nextSubtasks = accepted.map((subtask) => normalizeSubtask({
+    id: createId("subtask"),
+    title: subtask.title.trim(),
+    minutes: subtask.minutes,
+    completed: false,
+  })).filter(Boolean);
+
+  task.subtasks = draft.applyMode === "replace"
+    ? nextSubtasks
+    : task.subtasks.concat(nextSubtasks);
+  state.reviewDraft = null;
+  saveState();
+  saveReviewDraft();
+  setStatus(`${accepted.length} subtask${accepted.length === 1 ? "" : "s"} applied.`);
   closeDrawer(els.reviewPanel);
   render();
 }
@@ -2025,6 +2201,7 @@ function setupEvents() {
     if (!task) return;
     splitTask(task.id);
   });
+  els.detailBreakdownAI.addEventListener("click", analyzeTaskBreakdown);
   els.detailBacklog.addEventListener("click", () => {
     const task = getSelectedTask();
     if (!task) return;
