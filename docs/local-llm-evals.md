@@ -1,25 +1,33 @@
-# Local LLM Eval Questions
+# Local LLM Evals
 
-Overrun Lite can use local OpenAI-compatible models, but live model evaluation is intentionally deferred. Static contract tests and mocked browser tests should remain the default regression suite.
+Overrun Lite includes a manual advisory eval for local OpenAI-compatible models. It checks whether task-breakdown output can be extracted as JSON, normalized into subtasks, and pass a few lightweight shape checks.
 
-## Questions to Answer Before Building a Harness
+This command is not part of `npm test` or CI. Local model output is nondeterministic, hardware-dependent, and useful mainly for comparing model/server behavior during development.
 
-- Which local models should be supported and compared first?
-- What hardware profile should the latency budget assume?
-- What is the acceptable p50 and p95 latency for one task breakdown?
-- What fixture format should represent real planning tasks without leaking private user data?
-- Which rubric dimensions matter most: valid JSON, useful granularity, concrete action wording, time realism, instruction following, or safety?
-- What score should count as pass, warning, or fail?
-- Should live evals be manual, advisory in CI, or a hard CI gate?
-- How should nondeterminism be handled across repeated runs?
-- How many samples per fixture are needed before judging a model?
-- Which model/server metadata must be recorded: model name, quantization, server, version, temperature, max tokens, and hardware?
-- How should failures be stored so they can become future static regression fixtures?
-- What privacy rules apply if real user tasks are used to create eval examples?
+## Run
 
-## Future Command Shape
+Start a local OpenAI-compatible server, for example:
 
-An eventual manual command could look like this:
+```sh
+mlx_lm.server \
+  --model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit \
+  --host 127.0.0.1 \
+  --port 8080
+```
+
+Then run:
+
+```sh
+npm run eval:local
+```
+
+Defaults:
+
+- Base URL: `http://127.0.0.1:8080/v1`
+- Model: `mlx-community/Qwen2.5-Coder-7B-Instruct-4bit`
+- Fixtures: `tests/evals/task-breakdown.jsonl`
+
+Overrides:
 
 ```sh
 npm run eval:local -- \
@@ -28,4 +36,37 @@ npm run eval:local -- \
   --fixtures tests/evals/task-breakdown.jsonl
 ```
 
-The command should print parse rate, normalization rate, latency, rubric scores, and example failures. It should not mutate localStorage, require browser state, or run as part of the default test suite.
+## Output
+
+Each fixture reports:
+
+- request latency
+- whether `json_schema` or `json_object` fallback was used
+- whether JSON extraction passed
+- normalized subtask count
+- advisory quality result
+- warning/question counts
+- the first few normalized subtasks
+
+The summary reports parse success rate, normalization success rate, advisory quality pass count, and average latency.
+
+Advisory quality warnings do not make the command fail. The command exits nonzero only for harness/config errors such as an unreadable fixture file or unreachable endpoint.
+
+## Strict Mode
+
+`--strict` is available for experiments:
+
+```sh
+npm run eval:local -- --strict
+```
+
+Strict mode exits nonzero if any fixture fails the lightweight shape checks. Do not use strict mode in default CI until the model, server, fixtures, and pass thresholds are stable.
+
+## Open Questions Before CI Gating
+
+- Which local models should be compared regularly?
+- What latency budget should be considered acceptable for the target hardware?
+- Which rubric dimensions matter most beyond parseability?
+- How many samples per fixture are needed before judging a nondeterministic model?
+- How should failed live outputs be promoted into deterministic contract fixtures?
+- What privacy rules apply if real user tasks are ever used as eval examples?
