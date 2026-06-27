@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "eval:local": "node scripts/eval-local-llm.js",
     "test": "node --check app.js && npm run test:contract",
     "test:contract": "node --test tests/contract/*.test.js",
     "test:e2e": "playwright test",

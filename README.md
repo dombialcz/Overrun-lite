@@ -78,3 +78,10 @@ npm run test:e2e
 All page interaction should start from `ui` in `tests/e2e/fixtures/ui.fixture.ts`.
 Sub page objects are loaded lazily through `ui.calendar`, `ui.taskDetails`,
 `ui.inbox`, `ui.backlog`, `ui.settings`, `ui.aiReview`, and `ui.googleImport`.
+
+Manual local LLM evals require a running OpenAI-compatible local server and are
+advisory, not deterministic:
+
+```sh
+npm run eval:local
+```
