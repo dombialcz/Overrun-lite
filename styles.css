@@ -803,6 +803,20 @@ textarea {
   padding-top: 4px;
 }
 
+.confirm-row {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.confirm-row input {
+  width: auto;
+}
+
 .review-section {
   display: grid;
   gap: 12px;

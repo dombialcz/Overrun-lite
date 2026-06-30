@@ -13,14 +13,11 @@ const DAY_MINUTES = 11 * 60;
 const MOVE_STEP_MINUTES = 5;
 const COLUMN_OVERLAP_MINUTES = 15;
 const COMPACT_OVERLAP_OFFSET_PX = 12;
-const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
-const GOOGLE_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const DEFAULT_AI_SETTINGS = {
   providerMode: "vercel",
   localBaseUrl: "http://localhost:11434/v1",
   localModel: "",
   localApiKey: "",
-  googleClientId: "",
 };
 
 const ai = window.OverrunAI;
@@ -30,7 +27,6 @@ const state = {
   backlog: [],
   selectedTaskId: null,
   reviewDraft: null,
-  googleImportDraft: null,
   aiSettings: { ...DEFAULT_AI_SETTINGS },
 };
 
@@ -44,11 +40,18 @@ const els = {
   backlogTemplate: document.getElementById("backlog-template"),
   brainDump: document.getElementById("brain-dump"),
   calendarBlocks: document.getElementById("calendar-blocks"),
+  cancelClearBacklog: document.getElementById("cancel-clear-backlog"),
+  cancelClearBacklogSecondary: document.getElementById("cancel-clear-backlog-secondary"),
+  clearBacklog: document.getElementById("clear-backlog"),
+  clearBacklogPanel: document.getElementById("clear-backlog-panel"),
   clearDump: document.getElementById("clear-dump"),
   closeReview: document.getElementById("close-review"),
   closeSettings: document.getElementById("close-settings"),
   clearLocalStorage: document.getElementById("clear-local-storage"),
   closeTaskDetails: document.getElementById("close-task-details"),
+  confirmClearBacklog: document.getElementById("confirm-clear-backlog"),
+  confirmClearBacklogAction: document.getElementById("confirm-clear-backlog-action"),
+  dayReport: document.getElementById("day-report"),
   dayTimer: document.getElementById("day-timer"),
   detailBacklog: document.getElementById("detail-backlog"),
   detailBreakdownAI: document.getElementById("detail-breakdown-ai"),
@@ -74,15 +77,6 @@ const els = {
   discardReview: document.getElementById("discard-review"),
   doneTime: document.getElementById("done-time"),
   exportBacklog: document.getElementById("export-backlog"),
-  googleClientId: document.getElementById("google-client-id"),
-  googleImportEvents: document.getElementById("google-import-events"),
-  googleImportPanel: document.getElementById("google-import-panel"),
-  googleImportSummary: document.getElementById("google-import-summary"),
-  googleImportWarnings: document.getElementById("google-import-warnings"),
-  applyGoogleImport: document.getElementById("apply-google-import"),
-  closeGoogleImport: document.getElementById("close-google-import"),
-  discardGoogleImport: document.getElementById("discard-google-import"),
-  importGoogleCalendar: document.getElementById("import-google-calendar"),
   importBacklog: document.getElementById("import-backlog"),
   localApiKey: document.getElementById("local-api-key"),
   localBaseUrl: document.getElementById("local-base-url"),
@@ -219,13 +213,12 @@ function clearLocalStorageState() {
   });
   state.selectedTaskId = null;
   state.reviewDraft = null;
-  state.googleImportDraft = null;
   state.aiSettings = { ...DEFAULT_AI_SETTINGS };
   els.brainDump.value = "";
   pauseTimer();
   closeDrawer(els.reviewPanel);
-  closeDrawer(els.googleImportPanel);
   closeDrawer(els.taskDetailsPanel);
+  closeClearBacklogPanel();
   render();
   openDrawer(els.settingsPanel);
   setStatus("Local AI settings cleared. Tasks and backlog were kept.");
@@ -274,6 +267,8 @@ function normalizeTask(task) {
     sourceEventId: source.sourceEventId ? String(source.sourceEventId) : null,
     sourceEventICalUID: source.sourceEventICalUID ? String(source.sourceEventICalUID) : null,
     sourceUpdated: source.sourceUpdated ? String(source.sourceUpdated) : null,
+    sourceImportId: source.sourceImportId ? String(source.sourceImportId) : null,
+    sourceSnapshotId: source.sourceSnapshotId ? String(source.sourceSnapshotId) : null,
     parentId: source.parentId ? String(source.parentId) : null,
     splitGroupId: source.splitGroupId || source.parentId ? String(source.splitGroupId || source.parentId) : null,
     splitPartIndex: source.splitPartIndex ? clampNumber(source.splitPartIndex, 1, 99, 1) : null,
@@ -1113,7 +1108,6 @@ function renderSettings() {
   els.localBaseUrl.value = state.aiSettings.localBaseUrl;
   els.localModel.value = state.aiSettings.localModel;
   els.localApiKey.value = state.aiSettings.localApiKey;
-  els.googleClientId.value = state.aiSettings.googleClientId || "";
 }
 
 function renderReview() {
@@ -1174,95 +1168,6 @@ function renderReviewQuestions(draft) {
     });
     row.append(hint, input);
     els.reviewQuestions.appendChild(row);
-  });
-}
-
-function renderGoogleImport() {
-  const draft = state.googleImportDraft;
-  const hasDraft = Boolean(draft);
-  els.googleImportPanel.setAttribute("aria-hidden", hasDraft ? "false" : "true");
-  if (!draft) return;
-
-  els.googleImportSummary.textContent = draft.summary;
-  els.googleImportWarnings.innerHTML = "";
-  draft.warnings.forEach((warning) => {
-    const item = document.createElement("p");
-    item.className = "notice";
-    item.textContent = warning;
-    els.googleImportWarnings.appendChild(item);
-  });
-
-  els.googleImportEvents.innerHTML = "";
-  const heading = document.createElement("h3");
-  heading.textContent = "Events";
-  els.googleImportEvents.appendChild(heading);
-
-  if (!draft.events.length) {
-    const empty = document.createElement("p");
-    empty.className = "helper";
-    empty.textContent = "No new importable events were found.";
-    els.googleImportEvents.appendChild(empty);
-    return;
-  }
-
-  draft.events.forEach((event, index) => {
-    const card = document.createElement("article");
-    card.className = "proposal-card";
-    card.dataset.testid = "google-import-event";
-    if (!event.accepted) card.classList.add("muted-card");
-
-    const accept = document.createElement("input");
-    accept.type = "checkbox";
-    accept.checked = event.accepted;
-    accept.addEventListener("change", () => {
-      event.accepted = accept.checked;
-      renderGoogleImport();
-    });
-
-    const title = document.createElement("input");
-    title.type = "text";
-    title.value = event.title;
-    title.addEventListener("input", () => {
-      event.title = title.value;
-    });
-
-    const start = document.createElement("input");
-    start.type = "time";
-    start.min = "08:00";
-    start.max = "18:50";
-    start.step = "300";
-    start.value = formatClockTime(event.startMinutes);
-    start.addEventListener("input", () => {
-      event.startMinutes = clampStartMinutes(parseClockTime(start.value, event.startMinutes), event.minutes);
-    });
-
-    const minutes = createNumberInput(event.minutes, MIN_MINUTES, 480, (value) => {
-      event.minutes = value;
-      event.startMinutes = clampStartMinutes(event.startMinutes, event.minutes);
-    });
-
-    const removeEvent = makeButton("Discard", () => {
-      draft.events.splice(index, 1);
-      renderGoogleImport();
-    });
-
-    const source = document.createElement("p");
-    source.className = "task-meta";
-    source.textContent = event.sourceUpdated
-      ? `Source: ${event.sourceCalendarId} | ${event.sourceUpdated}`
-      : `Source: ${event.sourceCalendarId}`;
-
-    const grid = document.createElement("div");
-    grid.className = "proposal-grid import-grid";
-    grid.append(
-      makeField("Accept", accept),
-      makeField("Event", title),
-      makeField("Start", start),
-      makeField("Minutes", minutes)
-    );
-
-    card.append(grid, source, removeEvent);
-    els.googleImportEvents.appendChild(card);
   });
 }
 
@@ -1464,7 +1369,6 @@ function render() {
   renderCalendar();
   renderSettings();
   renderReview();
-  renderGoogleImport();
   updateDayTimerDisplay();
 }
 
@@ -1743,227 +1647,6 @@ function readableAIError(err) {
   return message;
 }
 
-function readableGoogleError(err) {
-  const message = err && err.message ? err.message : "Google Calendar import failed.";
-  if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
-    return "Google Calendar import failed. Check network access and that Google APIs allow this origin.";
-  }
-  return message;
-}
-
-async function importFromGoogleCalendar() {
-  const clientId = state.aiSettings.googleClientId.trim();
-  if (!clientId) {
-    setStatus("Add a Google OAuth client ID in Settings before importing.", true);
-    openDrawer(els.settingsPanel);
-    return;
-  }
-  if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
-    setStatus("Google Identity Services script is not loaded yet. Try again in a moment.", true);
-    return;
-  }
-
-  setStatus("Connecting to Google Calendar...");
-  els.importGoogleCalendar.disabled = true;
-  try {
-    const tokenResponse = await requestGoogleAccessToken(clientId);
-    if (!tokenResponse || !tokenResponse.access_token) {
-      throw new Error("Google did not return an access token.");
-    }
-    if (
-      window.google.accounts.oauth2.hasGrantedAllScopes &&
-      !window.google.accounts.oauth2.hasGrantedAllScopes(tokenResponse, GOOGLE_CALENDAR_SCOPE)
-    ) {
-      throw new Error("Calendar readonly permission was not granted.");
-    }
-    const events = await fetchGoogleCalendarEvents(tokenResponse.access_token);
-    state.googleImportDraft = buildGoogleImportDraft(events);
-    setStatus("Google Calendar import ready for review.");
-    openDrawer(els.googleImportPanel);
-    renderGoogleImport();
-  } catch (err) {
-    setStatus(readableGoogleError(err), true);
-  } finally {
-    els.importGoogleCalendar.disabled = false;
-  }
-}
-
-function requestGoogleAccessToken(clientId) {
-  return new Promise((resolve, reject) => {
-    const client = window.google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: GOOGLE_CALENDAR_SCOPE,
-      callback: (response) => {
-        if (response && response.error) {
-          reject(new Error(response.error_description || response.error));
-          return;
-        }
-        resolve(response);
-      },
-      error_callback: (err) => {
-        reject(new Error(err && err.message ? err.message : "Google authorization was cancelled."));
-      },
-    });
-    client.requestAccessToken();
-  });
-}
-
-async function fetchGoogleCalendarEvents(accessToken) {
-  const { timeMin, timeMax } = getTodayImportWindow();
-  const params = new URLSearchParams({
-    timeMin,
-    timeMax,
-    singleEvents: "true",
-    orderBy: "startTime",
-    maxResults: "50",
-  });
-  const response = await fetch(`${GOOGLE_CALENDAR_EVENTS_URL}?${params.toString()}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-    },
-  });
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = json.error && json.error.message
-      ? json.error.message
-      : "Google Calendar API request failed.";
-    throw new Error(message);
-  }
-  return Array.isArray(json.items) ? json.items : [];
-}
-
-function getTodayImportWindow() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return {
-    timeMin: start.toISOString(),
-    timeMax: end.toISOString(),
-  };
-}
-
-function buildGoogleImportDraft(events) {
-  const warnings = [];
-  const mapped = [];
-  let duplicateCount = 0;
-  let skippedAllDayCount = 0;
-  let skippedOutsideDayCount = 0;
-
-  events.forEach((event) => {
-    if (isDuplicateGoogleEvent(event)) {
-      duplicateCount += 1;
-      return;
-    }
-    const task = mapGoogleEventToDraft(event);
-    if (!task) {
-      if (event.start && event.start.date) skippedAllDayCount += 1;
-      else skippedOutsideDayCount += 1;
-      return;
-    }
-    mapped.push(task);
-  });
-
-  if (duplicateCount) {
-    warnings.push(`${duplicateCount} already-imported event${duplicateCount === 1 ? " was" : "s were"} skipped.`);
-  }
-  if (skippedAllDayCount) {
-    warnings.push(`${skippedAllDayCount} all-day event${skippedAllDayCount === 1 ? " was" : "s were"} skipped for this timed day view.`);
-  }
-  if (skippedOutsideDayCount) {
-    warnings.push(`${skippedOutsideDayCount} event${skippedOutsideDayCount === 1 ? " was" : "s were"} outside the visible day window.`);
-  }
-
-  const summary = mapped.length
-    ? `${mapped.length} new event${mapped.length === 1 ? "" : "s"} ready to import for today.`
-    : "No new importable events found for today.";
-
-  return {
-    id: createId("google-import"),
-    summary,
-    warnings,
-    events: mapped,
-  };
-}
-
-function isDuplicateGoogleEvent(event) {
-  const eventId = event && (event.id || event.sourceEventId) ? String(event.id || event.sourceEventId) : "";
-  const calendarId = event && event.sourceCalendarId ? String(event.sourceCalendarId) : "primary";
-  const iCalUID = event && (event.iCalUID || event.sourceEventICalUID)
-    ? String(event.iCalUID || event.sourceEventICalUID)
-    : "";
-  return [...state.tasks, ...state.backlog].some((task) => {
-    if (task.sourceProvider !== "google_calendar") return false;
-    const sameEventId = eventId && task.sourceEventId === eventId && task.sourceCalendarId === calendarId;
-    const sameICalUID = iCalUID && task.sourceEventICalUID === iCalUID;
-    return sameEventId || sameICalUID;
-  });
-}
-
-function mapGoogleEventToDraft(event) {
-  const startRaw = event && event.start ? event.start.dateTime : null;
-  const endRaw = event && event.end ? event.end.dateTime : null;
-  if (!startRaw || !endRaw) return null;
-
-  const start = new Date(startRaw);
-  const end = new Date(endRaw);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null;
-
-  const startMinutes = (start.getHours() - DAY_START_HOUR) * 60 + start.getMinutes();
-  const durationMinutes =
-    Math.max(MIN_MINUTES, Math.round((end.getTime() - start.getTime()) / 60000 / RESIZE_STEP_MINUTES) * RESIZE_STEP_MINUTES);
-  if (startMinutes < 0 || startMinutes >= DAY_MINUTES) return null;
-
-  const minutes = Math.min(480, durationMinutes);
-  return {
-    accepted: true,
-    title: String(event.summary || "Google Calendar event").trim() || "Google Calendar event",
-    minutes,
-    startMinutes: clampStartMinutes(startMinutes, minutes),
-    sourceProvider: "google_calendar",
-    sourceCalendarId: "primary",
-    sourceEventId: event.id ? String(event.id) : null,
-    sourceEventICalUID: event.iCalUID ? String(event.iCalUID) : null,
-    sourceUpdated: event.updated ? String(event.updated) : "",
-    htmlLink: event.htmlLink ? String(event.htmlLink) : "",
-  };
-}
-
-function applyGoogleImportDraft() {
-  const draft = state.googleImportDraft;
-  if (!draft) return;
-  const accepted = draft.events.filter((event) => event.accepted && event.title.trim());
-  accepted.forEach((event) => {
-    if (isDuplicateGoogleEvent(event)) return;
-    state.tasks.push(createTask(event.title.trim(), event.minutes, "meeting", {
-      startMinutes: event.startMinutes,
-      hasExplicitStart: true,
-      priorityScore: 50,
-      priorityReason: "Imported from Google Calendar.",
-      urgency: 3,
-      impact: 3,
-      sourceProvider: event.sourceProvider,
-      sourceCalendarId: event.sourceCalendarId,
-      sourceEventId: event.sourceEventId,
-      sourceEventICalUID: event.sourceEventICalUID,
-      sourceUpdated: event.sourceUpdated,
-    }));
-  });
-  state.googleImportDraft = null;
-  saveState();
-  closeDrawer(els.googleImportPanel);
-  render();
-  setStatus(`${accepted.length} Google Calendar event${accepted.length === 1 ? "" : "s"} imported.`);
-}
-
-function discardGoogleImportDraft() {
-  state.googleImportDraft = null;
-  closeDrawer(els.googleImportPanel);
-  renderGoogleImport();
-  setStatus("Google Calendar import discarded.");
-}
-
 function applyPriorityUpdates(updates) {
   updates.forEach((update) => {
     const task = [...state.tasks, ...state.backlog].find((item) => item.id === update.taskId);
@@ -2037,6 +1720,28 @@ function discardReviewDraft() {
   setStatus("AI draft discarded.");
   closeDrawer(els.reviewPanel);
   render();
+}
+
+function openClearBacklogPanel() {
+  els.confirmClearBacklog.checked = false;
+  els.confirmClearBacklogAction.disabled = true;
+  openDrawer(els.clearBacklogPanel);
+}
+
+function closeClearBacklogPanel() {
+  els.confirmClearBacklog.checked = false;
+  els.confirmClearBacklogAction.disabled = true;
+  closeDrawer(els.clearBacklogPanel);
+}
+
+function clearBacklogConfirmed() {
+  if (!els.confirmClearBacklog.checked) return;
+  const count = state.backlog.length;
+  state.backlog = [];
+  saveState();
+  closeClearBacklogPanel();
+  render();
+  setStatus(`${count} backlog item${count === 1 ? "" : "s"} cleared.`);
 }
 
 function reorderTasks(dragId, targetId) {
@@ -2125,10 +1830,6 @@ function setupEvents() {
   els.closeSettings.addEventListener("click", () => closeDrawer(els.settingsPanel));
   els.clearLocalStorage.addEventListener("click", clearLocalStorageState);
   els.closeReview.addEventListener("click", () => closeDrawer(els.reviewPanel));
-  els.importGoogleCalendar.addEventListener("click", importFromGoogleCalendar);
-  els.closeGoogleImport.addEventListener("click", () => closeDrawer(els.googleImportPanel));
-  els.applyGoogleImport.addEventListener("click", applyGoogleImportDraft);
-  els.discardGoogleImport.addEventListener("click", discardGoogleImportDraft);
   els.closeTaskDetails.addEventListener("click", closeTaskDetails);
   els.applyReview.addEventListener("click", applyReviewDraft);
   els.discardReview.addEventListener("click", discardReviewDraft);
@@ -2223,7 +1924,6 @@ function setupEvents() {
       localBaseUrl: els.localBaseUrl.value.trim() || "http://localhost:11434/v1",
       localModel: els.localModel.value.trim(),
       localApiKey: els.localApiKey.value,
-      googleClientId: els.googleClientId.value.trim(),
     };
     saveSettings();
     setStatus("AI settings saved.");
@@ -2231,48 +1931,105 @@ function setupEvents() {
   });
 
   els.saveDay.addEventListener("click", exportCompletedDay);
+  els.dayReport.addEventListener("click", exportDayReport);
   els.exportBacklog.addEventListener("click", exportBacklog);
   els.importBacklog.addEventListener("click", () => {
     els.backlogFile.value = "";
     els.backlogFile.click();
   });
   els.backlogFile.addEventListener("change", importBacklog);
+  els.clearBacklog.addEventListener("click", openClearBacklogPanel);
+  els.cancelClearBacklog.addEventListener("click", closeClearBacklogPanel);
+  els.cancelClearBacklogSecondary.addEventListener("click", closeClearBacklogPanel);
+  els.confirmClearBacklog.addEventListener("change", () => {
+    els.confirmClearBacklogAction.disabled = !els.confirmClearBacklog.checked;
+  });
+  els.confirmClearBacklogAction.addEventListener("click", clearBacklogConfirmed);
+}
+
+function serializeTask(task) {
+  return {
+    id: task.id,
+    name: task.name,
+    title: task.name,
+    minutes: task.minutes,
+    type: task.type,
+    startMinutes: task.startMinutes,
+    startTime: formatClockTime(task.startMinutes),
+    hasExplicitStart: task.hasExplicitStart,
+    elapsedMinutes: task.elapsedMinutes,
+    completed: task.completed,
+    priorityScore: task.priorityScore,
+    priorityReason: task.priorityReason,
+    urgency: task.urgency,
+    impact: task.impact,
+    sourceDumpId: task.sourceDumpId,
+    sourceProvider: task.sourceProvider,
+    sourceCalendarId: task.sourceCalendarId,
+    sourceEventId: task.sourceEventId,
+    sourceEventICalUID: task.sourceEventICalUID,
+    sourceUpdated: task.sourceUpdated,
+    sourceImportId: task.sourceImportId,
+    sourceSnapshotId: task.sourceSnapshotId,
+    parentId: task.parentId,
+    splitGroupId: task.splitGroupId,
+    splitPartIndex: task.splitPartIndex,
+    splitPartCount: task.splitPartCount,
+    subtasks: task.subtasks.map((subtask) => ({
+      id: subtask.id,
+      title: subtask.title,
+      minutes: subtask.minutes,
+      completed: subtask.completed,
+    })),
+  };
+}
+
+function buildDaySummary(tasks = state.tasks) {
+  const plannedMinutes = tasks.reduce((sum, task) => sum + task.minutes, 0);
+  const doneMinutes = tasks.reduce((sum, task) => sum + task.elapsedMinutes, 0);
+  const completedTasks = tasks.filter((task) => task.completed).length;
+  return {
+    plannedMinutes,
+    doneMinutes,
+    taskCount: tasks.length,
+    completedTasks,
+    inProgressTasks: tasks.filter((task) => !task.completed && task.elapsedMinutes > 0).length,
+    openTasks: tasks.filter((task) => !task.completed).length,
+  };
+}
+
+function buildDaySnapshot() {
+  const exportedAt = new Date().toISOString();
+  return {
+    type: "overrun_day_snapshot",
+    version: 1,
+    exportedAt,
+    date: exportedAt.slice(0, 10),
+    tasks: state.tasks.map(serializeTask),
+    backlog: state.backlog.map(serializeTask),
+    summary: buildDaySummary(),
+  };
 }
 
 function exportCompletedDay() {
-  const payload = state.tasks
-    .filter((task) => task.completed)
-    .map((task) => ({
-      id: task.id,
-      name: task.name,
-      startMinutes: task.startMinutes,
-      startTime: formatClockTime(task.startMinutes),
-      minutes: task.minutes,
-      elapsedMinutes: task.elapsedMinutes,
-      type: task.type,
-      completed: task.completed,
-      priorityScore: task.priorityScore,
-      priorityReason: task.priorityReason,
-      urgency: task.urgency,
-      impact: task.impact,
-      sourceProvider: task.sourceProvider,
-      sourceCalendarId: task.sourceCalendarId,
-      sourceEventId: task.sourceEventId,
-      sourceEventICalUID: task.sourceEventICalUID,
-      sourceUpdated: task.sourceUpdated,
-      subtasks: task.subtasks,
-    }));
-  downloadJson(payload, "overrun_day.json");
+  downloadJson(buildDaySnapshot(), "overrun_day.json");
 }
 
 function exportBacklog() {
-  downloadJson(state.backlog, "overrun_backlog.json");
+  downloadJson({
+    type: "overrun_backlog_export",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    backlog: state.backlog.map(serializeTask),
+  }, "overrun_backlog.json");
 }
 
 function downloadJson(payload, filename) {
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json",
-  });
+  downloadText(JSON.stringify(payload, null, 2), filename, "application/json");
+}
+
+function downloadText(content, filename, type = "text/plain") {
+  const blob = new Blob([content], { type });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
   link.download = filename;
@@ -2287,29 +2044,125 @@ function importBacklog(event) {
   reader.onload = () => {
     try {
       const parsed = JSON.parse(reader.result);
-      if (!Array.isArray(parsed)) {
-        setStatus("Backlog file must contain an array.", true);
+      const candidates = getImportCandidates(parsed);
+      if (!candidates) {
+        setStatus("Backlog file must contain a backlog export, day snapshot, or task array.", true);
         return;
       }
-      const imported = parsed.map((item) => {
-        const source = item && typeof item === "object" ? item : {};
-        return normalizeTask({
-          ...source,
-          id: createId(),
-          name: source.name || source.title || "Imported task",
-        });
-      });
+      const { imported, skipped } = importTasksToBacklog(candidates.tasks, candidates.sourceId);
       state.backlog = imported.concat(state.backlog);
       sortBacklogByPriority();
       saveState();
       render();
-      setStatus(`${imported.length} backlog item${imported.length === 1 ? "" : "s"} imported.`);
+      setStatus(`${imported.length} backlog item${imported.length === 1 ? "" : "s"} imported. ${skipped} duplicate${skipped === 1 ? "" : "s"} skipped.`);
     } catch (err) {
       setStatus("Invalid backlog JSON file.", true);
       console.warn("Invalid backlog file", err);
     }
   };
   reader.readAsText(file);
+}
+
+function getImportCandidates(parsed) {
+  if (Array.isArray(parsed)) {
+    return { sourceId: "legacy-array", tasks: parsed };
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  if (parsed.type === "overrun_backlog_export" && Array.isArray(parsed.backlog)) {
+    return {
+      sourceId: parsed.exportedAt || "backlog-export",
+      tasks: parsed.backlog,
+    };
+  }
+  if (parsed.type === "overrun_day_snapshot" && (Array.isArray(parsed.tasks) || Array.isArray(parsed.backlog))) {
+    return {
+      sourceId: parsed.exportedAt || parsed.date || "day-snapshot",
+      tasks: [...(Array.isArray(parsed.tasks) ? parsed.tasks : []), ...(Array.isArray(parsed.backlog) ? parsed.backlog : [])],
+    };
+  }
+  return null;
+}
+
+function importTasksToBacklog(items, sourceId) {
+  const existingKeys = buildExistingImportKeys();
+  const imported = [];
+  let skipped = 0;
+  items.forEach((item) => {
+    const source = item && typeof item === "object" ? item : {};
+    const normalized = normalizeTask({
+      ...source,
+      id: createId(),
+      name: source.name || source.title || "Imported task",
+      sourceImportId: source.sourceImportId || source.id || source.sourceEventId || source.sourceEventICalUID,
+      sourceSnapshotId: source.sourceSnapshotId || sourceId,
+    });
+    const keys = getTaskImportKeys(normalized);
+    if (keys.some((key) => existingKeys.has(key))) {
+      skipped += 1;
+      return;
+    }
+    keys.forEach((key) => existingKeys.add(key));
+    imported.push(normalized);
+  });
+  return { imported, skipped };
+}
+
+function buildExistingImportKeys() {
+  const keys = new Set();
+  [...state.tasks, ...state.backlog].forEach((task) => {
+    getTaskImportKeys(task).forEach((key) => keys.add(key));
+  });
+  return keys;
+}
+
+function getTaskImportKeys(task) {
+  return [
+    `title:${normalizeComparableTitle(task.name || task.title)}`,
+    task.sourceImportId ? `import:${task.sourceImportId}` : "",
+    task.sourceSnapshotId && task.sourceImportId ? `snapshot:${task.sourceSnapshotId}:${task.sourceImportId}` : "",
+    task.sourceProvider && task.sourceEventId ? `source-event:${task.sourceProvider}:${task.sourceEventId}` : "",
+    task.sourceProvider && task.sourceEventICalUID ? `source-ical:${task.sourceProvider}:${task.sourceEventICalUID}` : "",
+  ].filter(Boolean);
+}
+
+function exportDayReport() {
+  downloadText(buildDayReport(), "overrun_day_report.txt", "text/plain");
+}
+
+function buildDayReport() {
+  const tasks = [...state.tasks].sort((a, b) => a.startMinutes - b.startMinutes || a.name.localeCompare(b.name));
+  const summary = buildDaySummary(tasks);
+  const lines = [
+    `Overrun Lite day report - ${new Date().toLocaleDateString()}`,
+    "",
+    "Totals",
+    `Planned: ${formatDuration(summary.plannedMinutes)}`,
+    `Done: ${formatDuration(summary.doneMinutes)}`,
+    `Tasks: ${summary.completedTasks} completed, ${summary.inProgressTasks} in progress, ${summary.openTasks} open`,
+    "",
+    "Hour by hour",
+  ];
+
+  if (!tasks.length) {
+    lines.push("No day tasks planned.");
+    return lines.join("\n");
+  }
+
+  tasks.forEach((task) => {
+    const endMinutes = task.startMinutes + task.minutes;
+    const status = task.completed ? "done" : task.elapsedMinutes > 0 ? "in progress" : "open";
+    lines.push(`${formatClockTime(task.startMinutes)}-${formatClockTime(endMinutes)} | ${task.name}`);
+    lines.push(`  ${status}; planned ${formatDuration(task.minutes)}; done ${formatDuration(task.elapsedMinutes)}`);
+    const completedSubtasks = task.subtasks.filter((subtask) => subtask.completed);
+    if (completedSubtasks.length) {
+      lines.push(`  completed subtasks: ${completedSubtasks.map((subtask) => subtask.title).join(", ")}`);
+    }
+    if (task.priorityReason) {
+      lines.push(`  note: ${task.priorityReason}`);
+    }
+  });
+
+  return lines.join("\n");
 }
 
 loadState();

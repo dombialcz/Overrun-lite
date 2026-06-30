@@ -36,6 +36,14 @@ npm run eval:local -- \
   --fixtures tests/evals/task-breakdown.jsonl
 ```
 
+Inspection options:
+
+```sh
+npm run eval:local -- --json
+npm run eval:local -- --save-failures
+npm run eval:local -- --save-failures --failure-dir tmp/evals
+```
+
 ## Output
 
 Each fixture reports:
@@ -47,10 +55,15 @@ Each fixture reports:
 - advisory quality result
 - warning/question counts
 - the first few normalized subtasks
+- a short raw response excerpt when extraction, normalization, or quality checks fail
 
 The summary reports parse success rate, normalization success rate, advisory quality pass count, and average latency.
 
 Advisory quality warnings do not make the command fail. The command exits nonzero only for harness/config errors such as an unreadable fixture file or unreachable endpoint.
+
+`--json` prints one machine-readable report with config, summary, and sanitized per-fixture results. Full raw model responses are not included in JSON reports.
+
+`--save-failures` writes failed fixture artifacts to `tmp/evals` by default. These artifacts include the full raw response for local debugging and are ignored by git.
 
 ## Strict Mode
 

@@ -6,10 +6,15 @@ const test = require("node:test");
 
 const {
   buildPayload,
+  createRawExcerpt,
+  createReport,
   loadFixtures,
   parseArgs,
+  resultNeedsInspection,
+  sanitizeResult,
   scoreBreakdown,
   summarizeResults,
+  writeFailureArtifact,
 } = require("../../scripts/eval-local-llm");
 
 test("parseArgs applies defaults and overrides", () => {
@@ -17,15 +22,33 @@ test("parseArgs applies defaults and overrides", () => {
     baseUrl: "http://127.0.0.1:8080/v1",
     model: "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
     fixtures: "tests/evals/task-breakdown.jsonl",
+    failureDir: "tmp/evals",
+    json: false,
+    saveFailures: false,
     strict: false,
   });
 
   assert.deepEqual(
-    parseArgs(["--base-url", "http://localhost:9999/v1", "--model", "local-model", "--fixtures", "custom.jsonl", "--strict"]),
+    parseArgs([
+      "--base-url",
+      "http://localhost:9999/v1",
+      "--model",
+      "local-model",
+      "--fixtures",
+      "custom.jsonl",
+      "--failure-dir",
+      "tmp/custom-evals",
+      "--json",
+      "--save-failures",
+      "--strict",
+    ]),
     {
       baseUrl: "http://localhost:9999/v1",
       model: "local-model",
       fixtures: "custom.jsonl",
+      failureDir: "tmp/custom-evals",
+      json: true,
+      saveFailures: true,
       strict: true,
     }
   );
@@ -105,4 +128,114 @@ test("summarizeResults calculates advisory metrics", () => {
   assert.equal(summary.normalizedCount, 1);
   assert.equal(summary.qualityCount, 1);
   assert.equal(summary.averageLatencyMs, 200);
+});
+
+test("createRawExcerpt compacts and truncates model text", () => {
+  assert.equal(createRawExcerpt(" hello\n\nworld  "), "hello world");
+  assert.equal(createRawExcerpt("abcdefghij", 6), "abcde…");
+});
+
+test("resultNeedsInspection catches parse, normalization, and quality failures", () => {
+  assert.equal(
+    resultNeedsInspection({ extracted: true, normalized: true, quality: { pass: true } }),
+    false
+  );
+  assert.equal(
+    resultNeedsInspection({ extracted: false, normalized: true, quality: { pass: true } }),
+    true
+  );
+  assert.equal(
+    resultNeedsInspection({ extracted: true, normalized: false, quality: { pass: true } }),
+    true
+  );
+  assert.equal(
+    resultNeedsInspection({ extracted: true, normalized: true, quality: { pass: false } }),
+    true
+  );
+});
+
+test("sanitizeResult omits raw response unless requested", () => {
+  const result = {
+    id: "fixture",
+    latencyMs: 10,
+    schemaUsed: true,
+    extracted: true,
+    normalized: false,
+    quality: { pass: false },
+    rawExcerpt: "short",
+    rawResponse: "full raw response",
+    failureArtifact: "",
+    subtasks: [],
+    warningsCount: 0,
+    questionsCount: 0,
+    error: "",
+  };
+
+  assert.equal(Object.hasOwn(sanitizeResult(result), "rawResponse"), false);
+  assert.equal(sanitizeResult(result, { includeRawResponse: true }).rawResponse, "full raw response");
+});
+
+test("createReport includes config, summary, and sanitized results", () => {
+  const result = {
+    id: "fixture",
+    latencyMs: 10,
+    schemaUsed: true,
+    extracted: true,
+    normalized: false,
+    quality: { pass: false },
+    rawExcerpt: "short",
+    rawResponse: "full raw response",
+    failureArtifact: "",
+    subtasks: [],
+    warningsCount: 0,
+    questionsCount: 0,
+    error: "",
+  };
+
+  const report = createReport([result], summarizeResults([result]), {
+    baseUrl: "http://localhost:8080/v1/",
+    model: "local",
+    fixtures: "fixtures.jsonl",
+    failureDir: "tmp/evals",
+    saveFailures: false,
+    strict: false,
+  });
+
+  assert.equal(report.config.baseUrl, "http://localhost:8080/v1");
+  assert.equal(report.summary.total, 1);
+  assert.equal(report.results[0].id, "fixture");
+  assert.equal(Object.hasOwn(report.results[0], "rawResponse"), false);
+});
+
+test("writeFailureArtifact saves raw response only for inspected failures", () => {
+  const directory = path.join(os.tmpdir(), `overrun-eval-artifacts-${Date.now()}`);
+  const passing = {
+    id: "passing",
+    extracted: true,
+    normalized: true,
+    quality: { pass: true },
+  };
+  const failing = {
+    id: "bad fixture",
+    latencyMs: 10,
+    schemaUsed: true,
+    extracted: true,
+    normalized: false,
+    quality: { pass: false },
+    rawExcerpt: "short",
+    rawResponse: "full raw response",
+    failureArtifact: "",
+    subtasks: [],
+    warningsCount: 0,
+    questionsCount: 0,
+    error: "",
+  };
+
+  assert.equal(writeFailureArtifact(passing, {}, { saveFailures: true, failureDir: directory }), "");
+  const artifactPath = writeFailureArtifact(failing, { id: "fixture" }, { saveFailures: true, failureDir: directory });
+  const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+
+  assert.equal(artifact.id, "bad fixture");
+  assert.equal(artifact.result.rawResponse, "full raw response");
+  fs.rmSync(directory, { recursive: true, force: true });
 });

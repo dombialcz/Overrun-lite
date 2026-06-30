@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { AiReviewPageObject } from "./AiReviewPageObject";
 import { BacklogPageObject } from "./BacklogPageObject";
 import { CalendarPageObject } from "./CalendarPageObject";
-import { GoogleImportPageObject } from "./GoogleImportPageObject";
+import { FooterActionsPageObject } from "./FooterActionsPageObject";
 import { InboxPageObject } from "./InboxPageObject";
 import { SettingsPageObject } from "./SettingsPageObject";
 import { TaskDetailsPageObject } from "./TaskDetailsPageObject";
@@ -20,7 +20,7 @@ export class AppUi {
   #aiReview?: AiReviewPageObject;
   #backlog?: BacklogPageObject;
   #calendar?: CalendarPageObject;
-  #googleImport?: GoogleImportPageObject;
+  #footerActions?: FooterActionsPageObject;
   #inbox?: InboxPageObject;
   #settings?: SettingsPageObject;
   #taskDetails?: TaskDetailsPageObject;
@@ -48,8 +48,8 @@ export class AppUi {
     return (this.#calendar ??= new CalendarPageObject(this.page));
   }
 
-  get googleImport(): GoogleImportPageObject {
-    return (this.#googleImport ??= new GoogleImportPageObject(this.page));
+  get footerActions(): FooterActionsPageObject {
+    return (this.#footerActions ??= new FooterActionsPageObject(this.page));
   }
 
   get inbox(): InboxPageObject {

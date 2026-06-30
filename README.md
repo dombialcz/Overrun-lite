@@ -47,18 +47,18 @@ Small local models may return non-standard task JSON, so the client accepts comm
 aliases such as `task`, `priority`, `timeEstimate`, `steps`, `items`, and
 `currentTasks`.
 
-## Google Calendar import
+## Import and export
 
-The Google Calendar import is browser-only and works on static hosting. It uses Google Identity Services with the readonly Calendar scope, then calls the Calendar Events API directly from the browser.
+Footer actions support local file workflows:
 
-To use it:
-
-1. Create an OAuth web client in Google Cloud.
-2. Add the app origin, for example `http://127.0.0.1:4173` or `https://dombialcz.github.io`, to the authorized JavaScript origins.
-3. Paste the OAuth client ID into `Settings`.
-4. Click `Import from Google Calendar`, review the proposed events, then apply them.
-
-Imported events keep Google source IDs in localStorage so repeated imports skip duplicates.
+- `Save the day` exports a versioned day snapshot JSON with day tasks, backlog,
+  progress, subtasks, and summary totals.
+- `Day report` exports a plain text hour-by-hour report for timesheets and
+  daily standup notes.
+- `Export backlog` exports a versioned backlog JSON.
+- `Import backlog` accepts versioned backlog exports, day snapshots, and legacy
+  raw task arrays. Imports are incremental and skip duplicates.
+- `Clear backlog` removes backlog items only after explicit confirmation.
 
 ## Tests
 
@@ -77,7 +77,7 @@ npm run test:e2e
 
 All page interaction should start from `ui` in `tests/e2e/fixtures/ui.fixture.ts`.
 Sub page objects are loaded lazily through `ui.calendar`, `ui.taskDetails`,
-`ui.inbox`, `ui.backlog`, `ui.settings`, `ui.aiReview`, and `ui.googleImport`.
+`ui.inbox`, `ui.backlog`, `ui.settings`, `ui.aiReview`, and `ui.footerActions`.
 
 Manual local LLM evals require a running OpenAI-compatible local server and are
 advisory, not deterministic:
@@ -85,3 +85,7 @@ advisory, not deterministic:
 ```sh
 npm run eval:local
 ```
+
+Use `npm run eval:local -- --json` for a machine-readable report, or
+`npm run eval:local -- --save-failures` to save failed raw model responses under
+`tmp/evals/` for local inspection.

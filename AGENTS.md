@@ -12,7 +12,7 @@ User control is central: AI output is draft-only until the user reviews and appl
 - `aiContract.js` owns shared AI prompt, schema, parsing, and normalization behavior.
 - `api/plan.js` is the Vercel Chat Completions-compatible endpoint.
 - `tests/e2e/` contains Playwright regression coverage using the custom `{ ui }` fixture.
-- `README.md` documents running the app, AI modes, Google Calendar import, and test commands.
+- `README.md` documents running the app, AI modes, import/export workflows, and test commands.
 - `CHANGELOG.md` records recent user-visible changes.
 
 ## Working Rules

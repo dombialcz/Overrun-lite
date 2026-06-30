@@ -107,9 +107,10 @@
 
     <footer class="footer-actions">
       <button id="save-day" class="primary">Save the day</button>
-      <button id="import-google-calendar" class="ghost" data-testid="import-google-calendar">Import from Google Calendar</button>
+      <button id="day-report" class="ghost" data-testid="day-report">Day report</button>
       <button id="export-backlog" class="ghost">Export backlog</button>
       <button id="import-backlog" class="ghost">Import backlog</button>
+      <button id="clear-backlog" class="danger" data-testid="clear-backlog">Clear backlog</button>
       <input type="file" id="backlog-file" accept="application/json" hidden />
     </footer>
 
@@ -159,16 +160,9 @@
         <label for="local-api-key">Local API key</label>
         <input id="local-api-key" data-testid="local-api-key" type="password" placeholder="Optional for most local servers" />
 
-        <label for="google-client-id">Google OAuth client ID</label>
-        <input id="google-client-id" data-testid="google-client-id" type="text" placeholder="Client ID for Google Calendar import" />
-
         <p class="helper">
           Local mode calls <code>{baseUrl}/chat/completions</code> from the browser, so the
           local server must allow browser CORS.
-        </p>
-        <p class="helper">
-          Google import uses browser-only OAuth with <code>calendar.readonly</code>. Add this
-          page origin to the OAuth client in Google Cloud.
         </p>
         <div class="drawer-actions">
           <button id="save-settings" class="primary" data-testid="save-settings">Save settings</button>
@@ -177,21 +171,23 @@
       </div>
     </aside>
 
-    <aside id="google-import-panel" class="drawer review-drawer" aria-hidden="true" data-testid="google-import-drawer">
-      <div class="drawer-card wide">
+    <aside id="clear-backlog-panel" class="drawer" aria-hidden="true" data-testid="clear-backlog-drawer">
+      <div class="drawer-card">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Google Calendar</p>
-            <h2>Review imported events</h2>
+            <p class="eyebrow">Danger zone</p>
+            <h2>Clear backlog</h2>
           </div>
-          <button id="close-google-import" class="ghost" data-testid="close-google-import">Close</button>
+          <button id="cancel-clear-backlog" class="ghost" data-testid="cancel-clear-backlog">Cancel</button>
         </div>
-        <p id="google-import-summary" class="helper" data-testid="google-import-summary"></p>
-        <div id="google-import-warnings" class="notice-list" data-testid="google-import-warnings"></div>
-        <div id="google-import-events" class="review-section" data-testid="google-import-events"></div>
+        <p class="helper">This permanently removes every item currently in the backlog. Day tasks are not changed.</p>
+        <label class="confirm-row" for="confirm-clear-backlog">
+          <input id="confirm-clear-backlog" data-testid="confirm-clear-backlog" type="checkbox" />
+          <span>I accept this will be lost forever</span>
+        </label>
         <div class="drawer-actions">
-          <button id="apply-google-import" class="primary" data-testid="apply-google-import">Apply accepted events</button>
-          <button id="discard-google-import" class="ghost" data-testid="discard-google-import">Discard import</button>
+          <button id="confirm-clear-backlog-action" class="danger" data-testid="confirm-clear-backlog-action" disabled>Clear backlog</button>
+          <button id="cancel-clear-backlog-secondary" class="ghost" data-testid="cancel-clear-backlog-secondary">Keep backlog</button>
         </div>
       </div>
     </aside>
@@ -307,7 +303,6 @@
     </div>
 
     <script src="aiContract.js"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="app.js"></script>
   </body>
 </html>

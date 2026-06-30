@@ -12,8 +12,14 @@ All notable changes to Overrun Lite are documented here.
 - **AI contract tests** — added fast Node tests for planner and breakdown parsing/normalization behavior.
 - **Local LLM eval notes** — documented open questions for a future real local-model evaluation harness.
 - **Manual local LLM eval** — added an advisory command for checking whether a running local model returns parseable task-breakdown output.
+- **Eval response inspection** — local LLM evals now show raw response excerpts, can save failed raw outputs, and can emit JSON reports.
+- **Versioned planner exports** — backlog and day exports now use explicit JSON envelopes and day snapshots preserve task progress.
+- **Day report export** — added a plain text hour-by-hour report for timesheets and standup notes.
+- **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Backlog import** — imports are incremental, accept day snapshots and legacy arrays, and skip duplicates.
+- **Google Calendar import removed** — Google Calendar import controls and OAuth settings were removed from the app.
 - **Priority labels** — priority score (1–100) is now displayed as a human-readable label everywhere: `LOW` (1–25), `MEDIUM` (26–50), `HIGH` (51–75), `CRITICAL` (76–100). The task details drawer now shows a select dropdown instead of a number input.
 - **Completed task colour** — completed calendar blocks now turn green instead of dimming.
 - **Active timer colour + animation** — clicking Start on a task turns its calendar block yellow with a repeating pulse animation so it is easy to spot at a glance.

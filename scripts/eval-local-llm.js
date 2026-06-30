@@ -9,27 +9,41 @@ const ai = require("../aiContract");
 const DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1";
 const DEFAULT_MODEL = "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit";
 const DEFAULT_FIXTURES = "tests/evals/task-breakdown.jsonl";
+const DEFAULT_FAILURE_DIR = "tmp/evals";
+const RAW_EXCERPT_CHARS = 700;
 
 function parseArgs(argv) {
   const options = {
     baseUrl: DEFAULT_BASE_URL,
     model: DEFAULT_MODEL,
     fixtures: DEFAULT_FIXTURES,
+    failureDir: DEFAULT_FAILURE_DIR,
+    json: false,
+    saveFailures: false,
     strict: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === "--json") {
+      options.json = true;
+      continue;
+    }
+    if (arg === "--save-failures") {
+      options.saveFailures = true;
+      continue;
+    }
     if (arg === "--strict") {
       options.strict = true;
       continue;
     }
-    if (arg === "--base-url" || arg === "--model" || arg === "--fixtures") {
+    if (arg === "--base-url" || arg === "--model" || arg === "--fixtures" || arg === "--failure-dir") {
       const value = argv[index + 1];
       if (!value) throw new Error(`${arg} requires a value.`);
       if (arg === "--base-url") options.baseUrl = value;
       if (arg === "--model") options.model = value;
       if (arg === "--fixtures") options.fixtures = value;
+      if (arg === "--failure-dir") options.failureDir = value;
       index += 1;
       continue;
     }
@@ -89,6 +103,12 @@ function scoreBreakdown(normalized, criteria = {}) {
     missingRequiredTerms,
     presentForbiddenTerms,
   };
+}
+
+function createRawExcerpt(text, maxChars = RAW_EXCERPT_CHARS) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars - 1)}…`;
 }
 
 async function postChatCompletion({ baseUrl, model, messages, useSchema }) {
@@ -151,11 +171,16 @@ async function evaluateFixture(fixture, options) {
     extracted: false,
     normalized: false,
     quality: null,
+    rawExcerpt: "",
+    rawResponse: "",
+    failureArtifact: "",
     subtasks: [],
     warningsCount: 0,
     questionsCount: 0,
     error: "",
   };
+  result.rawResponse = content;
+  result.rawExcerpt = createRawExcerpt(content);
 
   try {
     const parsed = ai.extractJson(content);
@@ -171,6 +196,32 @@ async function evaluateFixture(fixture, options) {
   }
 
   return result;
+}
+
+function resultNeedsInspection(result) {
+  return !result.extracted || !result.normalized || !result.quality || !result.quality.pass;
+}
+
+function writeFailureArtifact(result, fixture, options) {
+  if (!options.saveFailures || !resultNeedsInspection(result)) return "";
+  const directory = path.resolve(process.cwd(), options.failureDir || DEFAULT_FAILURE_DIR);
+  fs.mkdirSync(directory, { recursive: true });
+  const safeId = String(result.id || "fixture").replace(/[^a-z0-9._-]+/gi, "-").replace(/^-|-$/g, "");
+  const filename = `${new Date().toISOString().replace(/[:.]/g, "-")}-${safeId || "fixture"}.json`;
+  const artifactPath = path.join(directory, filename);
+  fs.writeFileSync(
+    artifactPath,
+    JSON.stringify(
+      {
+        id: result.id,
+        fixture,
+        result: sanitizeResult(result, { includeRawResponse: true }),
+      },
+      null,
+      2
+    )
+  );
+  return artifactPath;
 }
 
 function summarizeResults(results) {
@@ -211,6 +262,48 @@ function printResult(result) {
   result.subtasks.slice(0, 4).forEach((subtask, index) => {
     console.log(`  ${index + 1}. ${subtask.title} (${subtask.minutes}m)`);
   });
+  if (resultNeedsInspection(result) && result.rawExcerpt) {
+    console.log(`raw excerpt: ${result.rawExcerpt}`);
+  }
+  if (result.failureArtifact) {
+    console.log(`saved failure: ${path.relative(process.cwd(), result.failureArtifact)}`);
+  }
+}
+
+function sanitizeResult(result, options = {}) {
+  const sanitized = {
+    id: result.id,
+    latencyMs: result.latencyMs,
+    schemaUsed: result.schemaUsed,
+    extracted: result.extracted,
+    normalized: result.normalized,
+    quality: result.quality,
+    rawExcerpt: result.rawExcerpt,
+    failureArtifact: result.failureArtifact,
+    subtasks: result.subtasks,
+    warningsCount: result.warningsCount,
+    questionsCount: result.questionsCount,
+    error: result.error,
+  };
+  if (options.includeRawResponse) {
+    sanitized.rawResponse = result.rawResponse;
+  }
+  return sanitized;
+}
+
+function createReport(results, summary, options) {
+  return {
+    config: {
+      baseUrl: trimSlash(options.baseUrl),
+      model: options.model,
+      fixtures: options.fixtures,
+      mode: options.strict ? "strict" : "advisory",
+      saveFailures: options.saveFailures,
+      failureDir: options.failureDir,
+    },
+    summary,
+    results: results.map((result) => sanitizeResult(result)),
+  };
 }
 
 function trimSlash(value) {
@@ -222,25 +315,33 @@ async function main() {
   const fixtures = loadFixtures(options.fixtures);
   if (!fixtures.length) throw new Error(`No fixtures found in ${options.fixtures}.`);
 
-  console.log(`Local LLM eval: ${options.model}`);
-  console.log(`Endpoint: ${trimSlash(options.baseUrl)}`);
-  console.log(`Fixtures: ${options.fixtures}`);
-  console.log(`Mode: ${options.strict ? "strict" : "advisory"}`);
+  if (!options.json) {
+    console.log(`Local LLM eval: ${options.model}`);
+    console.log(`Endpoint: ${trimSlash(options.baseUrl)}`);
+    console.log(`Fixtures: ${options.fixtures}`);
+    console.log(`Mode: ${options.strict ? "strict" : "advisory"}`);
+    if (options.saveFailures) console.log(`Failure artifacts: ${options.failureDir}`);
+  }
 
   const results = [];
   for (const fixture of fixtures) {
     const result = await evaluateFixture(fixture, options);
+    result.failureArtifact = writeFailureArtifact(result, fixture, options);
     results.push(result);
-    printResult(result);
+    if (!options.json) printResult(result);
   }
 
   const summary = summarizeResults(results);
-  console.log("\nSummary");
-  console.log(`fixtures: ${summary.total}`);
-  console.log(`parse success: ${summary.parseCount}/${summary.total} (${Math.round(summary.parseRate * 100)}%)`);
-  console.log(`normalization success: ${summary.normalizedCount}/${summary.total} (${Math.round(summary.normalizedRate * 100)}%)`);
-  console.log(`advisory quality pass: ${summary.qualityCount}/${summary.total}`);
-  console.log(`average latency: ${summary.averageLatencyMs}ms`);
+  if (options.json) {
+    console.log(JSON.stringify(createReport(results, summary, options), null, 2));
+  } else {
+    console.log("\nSummary");
+    console.log(`fixtures: ${summary.total}`);
+    console.log(`parse success: ${summary.parseCount}/${summary.total} (${Math.round(summary.parseRate * 100)}%)`);
+    console.log(`normalization success: ${summary.normalizedCount}/${summary.total} (${Math.round(summary.normalizedRate * 100)}%)`);
+    console.log(`advisory quality pass: ${summary.qualityCount}/${summary.total}`);
+    console.log(`average latency: ${summary.averageLatencyMs}ms`);
+  }
 
   if (options.strict && summary.qualityCount !== summary.total) {
     process.exitCode = 1;
@@ -256,8 +357,13 @@ if (require.main === module) {
 
 module.exports = {
   buildPayload,
+  createRawExcerpt,
+  createReport,
   loadFixtures,
   parseArgs,
+  resultNeedsInspection,
   scoreBreakdown,
   summarizeResults,
+  sanitizeResult,
+  writeFailureArtifact,
 };
