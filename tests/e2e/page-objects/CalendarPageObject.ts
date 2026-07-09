@@ -47,6 +47,49 @@ export class CalendarPageObject {
     });
   }
 
+  async mobileGridMetrics(): Promise<{
+    calendarRight: number;
+    clientWidth: number;
+    firstLabelLeft: number;
+    firstLabelTop: number;
+    gridColumnCount: number;
+    labelHeight: number;
+    labelVerticalGap: number;
+    scrollWidth: number;
+    secondLabelLeft: number;
+    secondLabelTop: number;
+  }> {
+    return this.root.evaluate((calendar) => {
+      const grid = calendar.querySelector<HTMLElement>(".calendar-grid");
+      const labels = Array.from(calendar.querySelectorAll<HTMLElement>(".time-labels span"));
+      const day = calendar.querySelector<HTMLElement>(".calendar-day");
+      if (!grid || labels.length < 2 || !day) {
+        throw new Error("Calendar grid metrics target not found.");
+      }
+
+      const first = labels[0].getBoundingClientRect();
+      const second = labels[1].getBoundingClientRect();
+      const dayRect = day.getBoundingClientRect();
+      const documentElement = document.documentElement;
+      const gridColumns = getComputedStyle(grid).gridTemplateColumns
+        .split(" ")
+        .filter(Boolean);
+
+      return {
+        calendarRight: Math.round(dayRect.right),
+        clientWidth: documentElement.clientWidth,
+        firstLabelLeft: Math.round(first.left),
+        firstLabelTop: Math.round(first.top),
+        gridColumnCount: gridColumns.length,
+        labelHeight: Math.round(first.height),
+        labelVerticalGap: Math.round(second.top - first.top),
+        scrollWidth: documentElement.scrollWidth,
+        secondLabelLeft: Math.round(second.left),
+        secondLabelTop: Math.round(second.top),
+      };
+    });
+  }
+
   async moveBlock(index: number, deltaY: number): Promise<void> {
     const block = this.block(index);
     const box = await block.boundingBox();

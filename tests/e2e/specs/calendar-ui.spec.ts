@@ -38,6 +38,19 @@ test("short task keeps a readable minimum height", async ({ ui }) => {
   expect(metrics.text).toContain("0h 10m");
 });
 
+test("mobile calendar keeps hour labels in a vertical rail", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+
+  const metrics = await ui.calendar.mobileGridMetrics();
+
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+  expect(metrics.calendarRight).toBeLessThanOrEqual(metrics.clientWidth);
+  expect(metrics.gridColumnCount).toBe(2);
+  expect(metrics.secondLabelTop).toBeGreaterThan(metrics.firstLabelTop);
+  expect(metrics.labelVerticalGap).toBeGreaterThan(metrics.labelHeight * 4);
+  expect(Math.abs(metrics.secondLabelLeft - metrics.firstLabelLeft)).toBeLessThanOrEqual(2);
+});
+
 test("resize grip changes task block height", async ({ ui }) => {
   await ui.calendar.addTask();
   await ui.calendar.openTask(0);
