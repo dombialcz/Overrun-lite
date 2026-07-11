@@ -1,8 +1,10 @@
 const {
   breakdownResponseSchema,
   buildPlannerMessages,
+  contextOrganizeResponseSchema,
   extractJson,
   normalizeBreakdownResponse,
+  normalizeContextOrganizeResponse,
   normalizePlannerResponse,
   plannerResponseSchema,
 } = require("../aiContract");
@@ -61,14 +63,14 @@ function normalizeRequestBody(body) {
       applyMode: payload.applyMode === "replace" ? "replace" : "append",
     };
   }
-  if (payload.mode !== "brain_dump") {
+  if (payload.mode !== "brain_dump" && payload.mode !== "context_organize") {
     throw badRequest("Unsupported planner mode.");
   }
   if (!String(payload.input || "").trim()) {
     throw badRequest("Input is required.");
   }
   return {
-    mode: "brain_dump",
+    mode: payload.mode,
     input: String(payload.input),
     answers: payload.answers && typeof payload.answers === "object" ? payload.answers : {},
     currentTasks: Array.isArray(payload.currentTasks) ? payload.currentTasks : [],
@@ -78,18 +80,34 @@ function normalizeRequestBody(body) {
 
 async function requestPlanner(payload, config) {
   const messages = buildPlannerMessages(payload);
-  const schema = payload.mode === "task_breakdown" ? breakdownResponseSchema : plannerResponseSchema;
-  const schemaName = payload.mode === "task_breakdown"
-    ? "overrun_breakdown_response"
-    : "overrun_planner_response";
+  const { schema, schemaName } = getResponseSchema(payload.mode);
   const response = await postChatCompletion(config, messages, true, schema, schemaName).catch(async (err) => {
     if (!err.canRetryWithoutSchema) throw err;
     return postChatCompletion(config, messages, false, schema, schemaName);
   });
   const parsed = extractJson(response);
-  return payload.mode === "task_breakdown"
-    ? normalizeBreakdownResponse(parsed)
-    : normalizePlannerResponse(parsed);
+  if (payload.mode === "task_breakdown") return normalizeBreakdownResponse(parsed);
+  if (payload.mode === "context_organize") return normalizeContextOrganizeResponse(parsed, payload);
+  return normalizePlannerResponse(parsed);
+}
+
+function getResponseSchema(mode) {
+  if (mode === "task_breakdown") {
+    return {
+      schema: breakdownResponseSchema,
+      schemaName: "overrun_breakdown_response",
+    };
+  }
+  if (mode === "context_organize") {
+    return {
+      schema: contextOrganizeResponseSchema,
+      schemaName: "overrun_context_organize_response",
+    };
+  }
+  return {
+    schema: plannerResponseSchema,
+    schemaName: "overrun_planner_response",
+  };
 }
 
 async function postChatCompletion(config, messages, useSchema, schema = plannerResponseSchema, schemaName = "overrun_planner_response") {

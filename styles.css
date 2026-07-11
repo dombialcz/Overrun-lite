@@ -886,9 +886,24 @@ textarea {
   grid-column: auto;
 }
 
+.merge-grid {
+  grid-template-columns: 84px minmax(180px, 1fr) 96px 86px 86px;
+}
+
+.merge-grid label:last-child {
+  grid-column: 1 / -1;
+}
+
 .proposal-subtasks {
   display: grid;
   gap: 8px;
+}
+
+.merge-subtask-edit-row {
+  display: grid;
+  grid-template-columns: 18px minmax(160px, 1fr) 96px auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .subtask-edit-row {
@@ -896,6 +911,14 @@ textarea {
   grid-template-columns: minmax(160px, 1fr) 96px auto;
   gap: 8px;
   align-items: center;
+}
+
+.agent-export-prompt {
+  min-height: 420px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 code {
@@ -934,6 +957,8 @@ button:disabled {
   .detail-grid,
   .detail-grid:has(label:nth-child(3)),
   .proposal-grid,
+  .merge-grid,
+  .merge-subtask-edit-row,
   .subtask-edit-row {
     grid-template-columns: 1fr;
   }

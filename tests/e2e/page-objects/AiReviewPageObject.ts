@@ -15,6 +15,15 @@ export class AiReviewPageObject {
     return this.page.getByTestId("breakdown-subtask");
   }
 
+  mergeSuggestions(): Locator {
+    return this.page.getByTestId("merge-suggestion");
+  }
+
+  async rejectMergeSuggestion(index: number): Promise<void> {
+    const merge = this.mergeSuggestions().nth(index);
+    await merge.getByTestId("merge-accept").uncheck();
+  }
+
   async editBreakdownSubtask(index: number, title: string, minutes: number): Promise<void> {
     const subtask = this.breakdownSubtasks().nth(index);
     await subtask.getByTestId("breakdown-subtask-title").fill(title);

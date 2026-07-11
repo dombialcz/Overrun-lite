@@ -64,3 +64,151 @@ test("AI task breakdown is reviewed before applying subtasks", async ({ ui }) =>
   ]);
   expect(ui.consoleErrors).toEqual([]);
 });
+
+test("context organize reviews new tasks and merge suggestions before applying", async ({ ui }) => {
+  await ui.page.evaluate(() => {
+    localStorage.setItem(
+      "overrun_lite_state",
+      JSON.stringify({
+        tasks: [
+          {
+            id: "planned-1",
+            name: "Prepare launch email",
+            minutes: 60,
+            type: "task",
+            startMinutes: 60,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 50,
+            urgency: 3,
+            impact: 3,
+            priorityReason: "Existing planned work.",
+            subtasks: [],
+          },
+        ],
+        backlog: [
+          {
+            id: "backlog-1",
+            name: "Make a cake",
+            minutes: 90,
+            type: "task",
+            startMinutes: 0,
+            hasExplicitStart: true,
+            elapsedMinutes: 0,
+            completed: false,
+            priorityScore: 30,
+            urgency: 2,
+            impact: 2,
+            priorityReason: "Initial idea.",
+            subtasks: [{ id: "subtask-1", title: "Choose a recipe", minutes: 20, completed: false }],
+          },
+        ],
+      })
+    );
+  });
+  await ui.page.reload();
+
+  await ui.page.route("**/api/plan", async (route) => {
+    const payload = route.request().postDataJSON();
+    expect(payload.mode).toBe("context_organize");
+    expect(payload.input).toContain("cake ingredients");
+    expect(payload.currentTasks.map((task: { id: string }) => task.id)).toContain("planned-1");
+    expect(payload.currentBacklog.map((task: { id: string }) => task.id)).toContain("backlog-1");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        summary: "Merged cake context and added one new task.",
+        proposedTasks: [
+          {
+            title: "Buy cake ingredients",
+            minutes: 35,
+            priorityScore: 70,
+            priorityReason: "Needed before baking.",
+            urgency: 4,
+            impact: 3,
+            subtasks: [],
+          },
+        ],
+        mergeSuggestions: [
+          {
+            taskId: "backlog-1",
+            reason: "The dump adds concrete cake prep.",
+            priorityScore: 88,
+            priorityReason: "Cake prep is now time-sensitive.",
+            urgency: 5,
+            impact: 4,
+            subtasks: [
+              { title: "Choose a recipe", minutes: 15 },
+              { title: "Check pantry for missing ingredients", minutes: 20 },
+            ],
+          },
+          {
+            taskId: "planned-1",
+            reason: "Launch wording was mentioned but should not be applied.",
+            priorityScore: 95,
+            priorityReason: "Rejected merge.",
+            urgency: 5,
+            impact: 5,
+            subtasks: [{ title: "Rejected subtask", minutes: 15 }],
+          },
+        ],
+        questions: [],
+        warnings: [],
+      }),
+    });
+  });
+
+  await ui.inbox.fillDump("Need cake ingredients and maybe launch email wording.");
+  await ui.inbox.contextOrganize();
+  await expect(ui.aiReview.heading).toHaveText("Review context organize");
+  await expect(ui.aiReview.mergeSuggestions()).toHaveCount(2);
+
+  const storedBeforeApply = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
+  );
+  expect(storedBeforeApply.backlog[0].priorityScore).toBe(30);
+  expect(storedBeforeApply.backlog[0].subtasks.map((item: { title: string }) => item.title)).toEqual(["Choose a recipe"]);
+
+  await ui.aiReview.rejectMergeSuggestion(1);
+  await ui.aiReview.apply();
+
+  const storedAfterApply = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
+  );
+  const cake = storedAfterApply.backlog.find((task: { id: string }) => task.id === "backlog-1");
+  const launch = storedAfterApply.tasks.find((task: { id: string }) => task.id === "planned-1");
+  const newTask = storedAfterApply.backlog.find((task: { name: string }) => task.name === "Buy cake ingredients");
+
+  expect(cake.priorityScore).toBe(88);
+  expect(cake.urgency).toBe(5);
+  expect(cake.impact).toBe(4);
+  expect(cake.subtasks.map((item: { title: string }) => item.title)).toEqual([
+    "Choose a recipe",
+    "Check pantry for missing ingredients",
+  ]);
+  expect(launch.priorityScore).toBe(50);
+  expect(launch.subtasks).toEqual([]);
+  expect(newTask).toBeTruthy();
+  expect(ui.consoleErrors).toEqual([]);
+});
+
+test("task agent export creates a static prompt without mutating state", async ({ ui }) => {
+  await ui.calendar.addTask();
+  await ui.calendar.openTask(0);
+
+  const before = await ui.page.evaluate(() => localStorage.getItem("overrun_lite_state"));
+  await ui.taskDetails.exportAgentPrompt();
+
+  await expect(ui.taskDetails.agentExportDrawer()).toHaveAttribute("aria-hidden", "false");
+  const prompt = await ui.taskDetails.agentExportPrompt().inputValue();
+  expect(prompt).toContain("You are helping me complete a task from Overrun Lite.");
+  expect(prompt).toContain("## Task");
+  expect(prompt).toContain("New task");
+  expect(prompt).toContain("## Constraints");
+
+  const after = await ui.page.evaluate(() => localStorage.getItem("overrun_lite_state"));
+  expect(after).toBe(before);
+  expect(ui.consoleErrors).toEqual([]);
+});

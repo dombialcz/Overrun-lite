@@ -10,4 +10,8 @@ export class InboxPageObject {
   async fillDump(text: string): Promise<void> {
     await this.page.getByTestId("brain-dump").fill(text);
   }
+
+  async contextOrganize(): Promise<void> {
+    await this.page.getByTestId("context-organize").click();
+  }
 }
