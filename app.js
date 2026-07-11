@@ -33,6 +33,9 @@ const state = {
 const els = {
   addTask: document.getElementById("add-task"),
   addMeeting: document.getElementById("add-meeting"),
+  agentExportPanel: document.getElementById("agent-export-panel"),
+  agentExportPrompt: document.getElementById("agent-export-prompt"),
+  agentExportStatus: document.getElementById("agent-export-status"),
   analyzeDump: document.getElementById("analyze-dump"),
   applyReview: document.getElementById("apply-review"),
   backlogFile: document.getElementById("backlog-file"),
@@ -45,12 +48,15 @@ const els = {
   clearBacklog: document.getElementById("clear-backlog"),
   clearBacklogPanel: document.getElementById("clear-backlog-panel"),
   clearDump: document.getElementById("clear-dump"),
+  closeAgentExport: document.getElementById("close-agent-export"),
   closeReview: document.getElementById("close-review"),
   closeSettings: document.getElementById("close-settings"),
   clearLocalStorage: document.getElementById("clear-local-storage"),
   closeTaskDetails: document.getElementById("close-task-details"),
   confirmClearBacklog: document.getElementById("confirm-clear-backlog"),
   confirmClearBacklogAction: document.getElementById("confirm-clear-backlog-action"),
+  contextOrganize: document.getElementById("context-organize"),
+  copyAgentExport: document.getElementById("copy-agent-export"),
   dayReport: document.getElementById("day-report"),
   dayTimer: document.getElementById("day-timer"),
   detailBacklog: document.getElementById("detail-backlog"),
@@ -59,6 +65,7 @@ const els = {
   detailBreakdownGranularity: document.getElementById("detail-breakdown-granularity"),
   detailBreakdownInstructions: document.getElementById("detail-breakdown-instructions"),
   detailDelete: document.getElementById("detail-delete"),
+  detailExportAgent: document.getElementById("detail-export-agent"),
   detailHeading: document.getElementById("detail-heading"),
   detailImpact: document.getElementById("detail-impact"),
   detailPriorityReason: document.getElementById("detail-priority-reason"),
@@ -1117,12 +1124,21 @@ function renderReview() {
   if (!draft) return;
 
   const isBreakdownDraft = draft.type === "task_breakdown";
-  els.reviewHeading.textContent = isBreakdownDraft ? "Review task breakdown" : "Review before applying";
-  els.applyReview.textContent = isBreakdownDraft ? "Apply subtasks" : "Apply accepted tasks";
+  const isContextDraft = draft.type === "context_organize";
+  els.reviewHeading.textContent = isBreakdownDraft
+    ? "Review task breakdown"
+    : isContextDraft
+      ? "Review context organize"
+      : "Review before applying";
+  els.applyReview.textContent = isBreakdownDraft
+    ? "Apply subtasks"
+    : isContextDraft
+      ? "Apply accepted changes"
+      : "Apply accepted tasks";
   els.reanalyzeDump.hidden = isBreakdownDraft;
   els.reviewSummary.textContent = draft.summary || "Review the AI proposal before applying it.";
   els.reviewWarnings.innerHTML = "";
-  draft.warnings.forEach((warning) => {
+  (draft.warnings || []).forEach((warning) => {
     const item = document.createElement("p");
     item.className = "notice";
     item.textContent = warning;
@@ -1134,16 +1150,18 @@ function renderReview() {
     renderReviewSubtasks(draft);
   } else {
     renderReviewTasks(draft);
+    if (isContextDraft) renderReviewMergeSuggestions(draft);
   }
 }
 
 function renderReviewQuestions(draft) {
   els.reviewQuestions.innerHTML = "";
   if (!draft.answers) draft.answers = {};
+  const questions = Array.isArray(draft.questions) ? draft.questions : [];
   const heading = document.createElement("h3");
   heading.textContent = "Follow-up questions";
   els.reviewQuestions.appendChild(heading);
-  if (!draft.questions.length) {
+  if (!questions.length) {
     const empty = document.createElement("p");
     empty.className = "helper";
     empty.textContent = draft.type === "task_breakdown"
@@ -1153,7 +1171,7 @@ function renderReviewQuestions(draft) {
     return;
   }
 
-  draft.questions.forEach((question) => {
+  questions.forEach((question) => {
     const row = document.createElement("label");
     row.className = "question-row";
     row.textContent = question.question;
@@ -1173,18 +1191,18 @@ function renderReviewQuestions(draft) {
 
 function renderReviewTasks(draft) {
   els.reviewTasks.innerHTML = "";
+  const proposedTasks = Array.isArray(draft.proposedTasks) ? draft.proposedTasks : [];
   const heading = document.createElement("h3");
   heading.textContent = "Proposed tasks";
   els.reviewTasks.appendChild(heading);
-  if (!draft.proposedTasks.length) {
+  if (!proposedTasks.length) {
     const empty = document.createElement("p");
     empty.className = "helper";
     empty.textContent = "No tasks were extracted yet.";
     els.reviewTasks.appendChild(empty);
-    return;
   }
 
-  draft.proposedTasks.forEach((task, index) => {
+  proposedTasks.forEach((task, index) => {
     const card = document.createElement("article");
     card.className = "proposal-card";
     if (!task.accepted) card.classList.add("muted-card");
@@ -1271,6 +1289,135 @@ function renderReviewTasks(draft) {
     });
 
     card.append(grid, subtaskList, addSubtask, removeTaskButton);
+    els.reviewTasks.appendChild(card);
+  });
+}
+
+function renderReviewMergeSuggestions(draft) {
+  const heading = document.createElement("h3");
+  heading.textContent = "Merge suggestions";
+  els.reviewTasks.appendChild(heading);
+  const suggestions = Array.isArray(draft.mergeSuggestions) ? draft.mergeSuggestions : [];
+  if (!suggestions.length) {
+    const empty = document.createElement("p");
+    empty.className = "helper";
+    empty.textContent = "No existing tasks were matched for merging.";
+    els.reviewTasks.appendChild(empty);
+    return;
+  }
+
+  suggestions.forEach((suggestion, index) => {
+    const card = document.createElement("article");
+    card.className = "proposal-card";
+    card.dataset.testid = "merge-suggestion";
+    if (!suggestion.accepted) card.classList.add("muted-card");
+
+    const accept = document.createElement("input");
+    accept.type = "checkbox";
+    accept.checked = suggestion.accepted;
+    accept.dataset.testid = "merge-accept";
+    accept.addEventListener("change", () => {
+      suggestion.accepted = accept.checked;
+      saveReviewDraft();
+      renderReview();
+    });
+
+    const target = document.createElement("input");
+    target.type = "text";
+    target.value = suggestion.targetTitle || suggestion.taskId;
+    target.readOnly = true;
+    target.dataset.testid = "merge-target";
+
+    const priority = createNumberInput(suggestion.priorityScore, 1, 100, (value) => {
+      suggestion.priorityScore = value;
+      saveReviewDraft();
+    });
+    priority.dataset.testid = "merge-priority";
+
+    const urgency = createNumberInput(suggestion.urgency, 1, 5, (value) => {
+      suggestion.urgency = value;
+      saveReviewDraft();
+    });
+
+    const impact = createNumberInput(suggestion.impact, 1, 5, (value) => {
+      suggestion.impact = value;
+      saveReviewDraft();
+    });
+
+    const reason = document.createElement("textarea");
+    reason.rows = 2;
+    reason.value = suggestion.priorityReason;
+    reason.dataset.testid = "merge-priority-reason";
+    reason.addEventListener("input", () => {
+      suggestion.priorityReason = reason.value;
+      saveReviewDraft();
+    });
+
+    const mergeReason = document.createElement("p");
+    mergeReason.className = "helper";
+    mergeReason.textContent = suggestion.reason;
+
+    const subtaskList = document.createElement("div");
+    subtaskList.className = "proposal-subtasks";
+    suggestion.subtasks.forEach((subtask, subtaskIndex) => {
+      const acceptSubtask = document.createElement("input");
+      acceptSubtask.type = "checkbox";
+      acceptSubtask.checked = subtask.accepted;
+      acceptSubtask.addEventListener("change", () => {
+        subtask.accepted = acceptSubtask.checked;
+        saveReviewDraft();
+      });
+
+      const subtaskInput = document.createElement("input");
+      subtaskInput.type = "text";
+      subtaskInput.value = subtask.title;
+      subtaskInput.dataset.testid = "merge-subtask-title";
+      subtaskInput.addEventListener("input", () => {
+        subtask.title = subtaskInput.value;
+        saveReviewDraft();
+      });
+
+      const subtaskMinutes = createNumberInput(subtask.minutes, 5, 240, (value) => {
+        subtask.minutes = value;
+        saveReviewDraft();
+      });
+
+      const remove = makeButton("Remove", () => {
+        suggestion.subtasks.splice(subtaskIndex, 1);
+        saveReviewDraft();
+        renderReview();
+      });
+
+      const row = document.createElement("div");
+      row.className = "merge-subtask-edit-row";
+      row.append(acceptSubtask, subtaskInput, subtaskMinutes, remove);
+      subtaskList.appendChild(row);
+    });
+
+    const addSubtask = makeButton("Add subtask", () => {
+      suggestion.subtasks.push({ title: "New action", minutes: 25, accepted: true });
+      saveReviewDraft();
+      renderReview();
+    });
+
+    const discard = makeButton("Discard", () => {
+      draft.mergeSuggestions.splice(index, 1);
+      saveReviewDraft();
+      renderReview();
+    });
+
+    const grid = document.createElement("div");
+    grid.className = "proposal-grid merge-grid";
+    grid.append(
+      makeField("Accept", accept),
+      makeField("Existing task", target),
+      makeField("Priority", priority),
+      makeField("Urgency", urgency),
+      makeField("Impact", impact),
+      makeField("Priority reason", reason)
+    );
+
+    card.append(grid, mergeReason, subtaskList, addSubtask, discard);
     els.reviewTasks.appendChild(card);
   });
 }
@@ -1393,9 +1540,9 @@ function sortBacklogByPriority() {
   });
 }
 
-function createPlannerPayload() {
+function createPlannerPayload(mode = "brain_dump") {
   return {
-    mode: "brain_dump",
+    mode,
     input: els.brainDump.value.trim(),
     answers: state.reviewDraft ? state.reviewDraft.answers : {},
     currentTasks: state.tasks.map(summarizeTaskForAI),
@@ -1468,26 +1615,63 @@ function filterExistingTaskProposals(proposedTasks, payload) {
   return { filtered, skipped };
 }
 
-async function analyzeDump() {
-  const payload = createPlannerPayload();
+function findTaskById(taskId) {
+  return [...state.tasks, ...state.backlog].find((item) => item.id === taskId);
+}
+
+function normalizeMergeSuggestionsForReview(mergeSuggestions) {
+  let skipped = 0;
+  const normalized = [];
+  mergeSuggestions.forEach((suggestion) => {
+    const target = findTaskById(suggestion.taskId);
+    if (!target) {
+      skipped += 1;
+      return;
+    }
+    normalized.push({
+      ...suggestion,
+      targetTitle: target.name,
+      accepted: true,
+      subtasks: suggestion.subtasks.map((subtask) => ({
+        ...subtask,
+        accepted: true,
+      })),
+    });
+  });
+  return { normalized, skipped };
+}
+
+async function analyzeDump(options = {}) {
+  const mode = options.mode === "context_organize" ? "context_organize" : "brain_dump";
+  const payload = createPlannerPayload(mode);
   if (!payload.input) {
     setStatus("Add a brain dump before analyzing.", true);
     return;
   }
 
-  setStatus("Analyzing...");
+  setStatus(mode === "context_organize" ? "Organizing with context..." : "Analyzing...");
   els.analyzeDump.disabled = true;
+  els.contextOrganize.disabled = true;
   els.reanalyzeDump.disabled = true;
   els.thinkingOverlay.setAttribute("aria-hidden", "false");
   try {
     const result = await requestAIPlan(payload);
-    const normalized = ai.normalizePlannerResponse(result);
+    const normalized = mode === "context_organize"
+      ? ai.normalizeContextOrganizeResponse(result, payload)
+      : ai.normalizePlannerResponse(result);
     const { filtered, skipped } = filterExistingTaskProposals(normalized.proposedTasks, payload);
     const warnings = [...normalized.warnings];
     if (skipped) {
       warnings.push(`${skipped} existing task${skipped === 1 ? " was" : "s were"} returned by AI and skipped.`);
     }
+    const mergeReview = mode === "context_organize"
+      ? normalizeMergeSuggestionsForReview(normalized.mergeSuggestions)
+      : { normalized: [], skipped: 0 };
+    if (mergeReview.skipped) {
+      warnings.push(`${mergeReview.skipped} merge suggestion${mergeReview.skipped === 1 ? " referenced" : "s referenced"} missing tasks and skipped.`);
+    }
     state.reviewDraft = {
+      type: mode,
       id: createId("dump"),
       sourceText: payload.input,
       summary: normalized.summary,
@@ -1499,17 +1683,17 @@ async function analyzeDump() {
         ...task,
         accepted: true,
       })),
+      mergeSuggestions: mergeReview.normalized,
     };
-    applyPriorityUpdates(normalized.priorityUpdates);
-    saveState();
     saveReviewDraft();
-    setStatus("Draft ready for review.");
+    setStatus(mode === "context_organize" ? "Context draft ready for review." : "Draft ready for review.");
     openDrawer(els.reviewPanel);
     render();
   } catch (err) {
     setStatus(readableAIError(err), true);
   } finally {
     els.analyzeDump.disabled = false;
+    els.contextOrganize.disabled = false;
     els.reanalyzeDump.disabled = false;
     els.thinkingOverlay.setAttribute("aria-hidden", "true");
   }
@@ -1587,17 +1771,28 @@ async function requestLocalAI(payload) {
     return postLocalChatCompletion(baseUrl, model, messages, false);
   });
   const parsed = ai.extractJson(content);
-  return payload.mode === "task_breakdown"
-    ? ai.normalizeBreakdownResponse(parsed)
-    : ai.normalizePlannerResponse(parsed);
+  if (payload.mode === "task_breakdown") return ai.normalizeBreakdownResponse(parsed);
+  if (payload.mode === "context_organize") return ai.normalizeContextOrganizeResponse(parsed, payload);
+  return ai.normalizePlannerResponse(parsed);
 }
 
 async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
   const isBreakdown = messages.some((message) =>
     String(message.content || "").includes('"mode": "task_breakdown"')
   );
-  const schema = isBreakdown ? ai.breakdownResponseSchema : ai.plannerResponseSchema;
-  const schemaName = isBreakdown ? "overrun_breakdown_response" : "overrun_planner_response";
+  const isContextOrganize = messages.some((message) =>
+    String(message.content || "").includes('"mode": "context_organize"')
+  );
+  const schema = isBreakdown
+    ? ai.breakdownResponseSchema
+    : isContextOrganize
+      ? ai.contextOrganizeResponseSchema
+      : ai.plannerResponseSchema;
+  const schemaName = isBreakdown
+    ? "overrun_breakdown_response"
+    : isContextOrganize
+      ? "overrun_context_organize_response"
+      : "overrun_planner_response";
   const body = {
     model,
     messages,
@@ -1648,13 +1843,13 @@ function readableAIError(err) {
 }
 
 function applyPriorityUpdates(updates) {
-  updates.forEach((update) => {
+  (updates || []).forEach((update) => {
     const task = [...state.tasks, ...state.backlog].find((item) => item.id === update.taskId);
     if (!task) return;
     task.priorityScore = update.priorityScore;
     task.priorityReason = update.priorityReason;
   });
-  if (updates.length) sortBacklogByPriority();
+  if (updates && updates.length) sortBacklogByPriority();
 }
 
 function applyReviewDraft() {
@@ -1664,7 +1859,7 @@ function applyReviewDraft() {
     applyBreakdownReviewDraft(draft);
     return;
   }
-  const accepted = draft.proposedTasks.filter((task) => task.accepted && task.title.trim());
+  const accepted = (draft.proposedTasks || []).filter((task) => task.accepted && task.title.trim());
   accepted.forEach((proposal) => {
     const parent = createTask(proposal.title.trim(), proposal.minutes, "task", {
       priorityScore: proposal.priorityScore,
@@ -1679,13 +1874,54 @@ function applyReviewDraft() {
     });
     state.backlog.push(parent);
   });
+  if (draft.type === "context_organize") {
+    applyMergeSuggestions(draft);
+  } else {
+    applyPriorityUpdates(draft.priorityUpdates || []);
+  }
   sortBacklogByPriority();
   state.reviewDraft = null;
   saveState();
   saveReviewDraft();
-  setStatus(`${accepted.length} task${accepted.length === 1 ? "" : "s"} added to backlog.`);
+  const mergeCount = draft.type === "context_organize"
+    ? (draft.mergeSuggestions || []).filter((suggestion) => suggestion.accepted).length
+    : 0;
+  const taskLabel = `${accepted.length} task${accepted.length === 1 ? "" : "s"} added`;
+  const mergeLabel = mergeCount
+    ? `, ${mergeCount} merge${mergeCount === 1 ? "" : "s"} applied`
+    : "";
+  setStatus(`${taskLabel}${mergeLabel}.`);
   closeDrawer(els.reviewPanel);
   render();
+}
+
+function applyMergeSuggestions(draft) {
+  (draft.mergeSuggestions || []).forEach((suggestion) => {
+    if (!suggestion.accepted) return;
+    const task = findTaskById(suggestion.taskId);
+    if (!task) return;
+    task.priorityScore = clampNumber(suggestion.priorityScore, 1, 100, task.priorityScore);
+    task.priorityReason = String(suggestion.priorityReason || task.priorityReason).trim();
+    task.urgency = clampNumber(suggestion.urgency, 1, 5, task.urgency);
+    task.impact = clampNumber(suggestion.impact, 1, 5, task.impact);
+
+    const existingSubtasks = new Set(task.subtasks.map((subtask) => normalizeComparableTitle(subtask.title)));
+    (suggestion.subtasks || [])
+      .filter((subtask) => subtask.accepted !== false && String(subtask.title || "").trim())
+      .forEach((subtask) => {
+        const normalizedTitle = normalizeComparableTitle(subtask.title);
+        if (existingSubtasks.has(normalizedTitle)) return;
+        const nextSubtask = normalizeSubtask({
+          id: createId("subtask"),
+          title: subtask.title,
+          minutes: subtask.minutes,
+          completed: false,
+        });
+        if (!nextSubtask) return;
+        task.subtasks.push(nextSubtask);
+        existingSubtasks.add(normalizedTitle);
+      });
+  });
 }
 
 function applyBreakdownReviewDraft(draft) {
@@ -1720,6 +1956,81 @@ function discardReviewDraft() {
   setStatus("AI draft discarded.");
   closeDrawer(els.reviewPanel);
   render();
+}
+
+function buildAgentPrompt(task) {
+  const status = task.completed
+    ? "done"
+    : task.elapsedMinutes > 0
+      ? "in progress"
+      : "open";
+  const subtasks = task.subtasks.length
+    ? task.subtasks
+        .map((subtask) => `- [${subtask.completed ? "x" : " "}] ${subtask.title} (${formatDuration(subtask.minutes)})`)
+        .join("\n")
+    : "- No subtasks recorded.";
+
+  return [
+    "You are helping me complete a task from Overrun Lite.",
+    "",
+    "## Task",
+    task.name,
+    "",
+    "## Current Planner Context",
+    `- Status: ${status}`,
+    `- Planned duration: ${formatDuration(task.minutes)}`,
+    `- Done so far: ${formatDuration(task.elapsedMinutes)}`,
+    `- Priority: ${scoreToLabel(task.priorityScore)} (${task.priorityScore}/100)`,
+    `- Impact: ${task.impact}/5`,
+    `- Urgency: ${task.urgency}/5`,
+    `- Scheduled start: ${formatClockTime(task.startMinutes)}`,
+    task.priorityReason ? `- Planner note: ${task.priorityReason}` : "- Planner note: none",
+    "",
+    "## Subtasks",
+    subtasks,
+    "",
+    "## Request",
+    "Help me make concrete progress on this task. Start by briefly restating the goal, then propose or perform the next useful steps based on the available context.",
+    "",
+    "## Constraints",
+    "- Ask clarifying questions if the task is ambiguous or missing required context.",
+    "- Do not mark the task complete unless I explicitly say the work is done.",
+    "- Preserve user control: propose changes before making broad or destructive edits.",
+    "- Keep the output actionable and focused on this task.",
+    "",
+    "## Expected Output",
+    "- A concise summary of what you did or recommend.",
+    "- Any files, commands, links, or artifacts I should review.",
+    "- Clear next steps if the task cannot be completed in one pass.",
+  ].join("\n");
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  els.agentExportPrompt.focus();
+  els.agentExportPrompt.select();
+  document.execCommand("copy");
+}
+
+async function exportSelectedTaskToAgent() {
+  const task = getSelectedTask();
+  if (!task) {
+    setStatus("Select a task before exporting an agent prompt.", true);
+    return;
+  }
+  const prompt = buildAgentPrompt(task);
+  els.agentExportPrompt.value = prompt;
+  els.agentExportStatus.textContent = "Prompt generated. It is safe to review before using in an agentic tool.";
+  openDrawer(els.agentExportPanel);
+  try {
+    await copyTextToClipboard(prompt);
+    els.agentExportStatus.textContent = "Prompt generated and copied to clipboard.";
+  } catch (err) {
+    els.agentExportStatus.textContent = "Prompt generated. Copy it from the field below.";
+  }
 }
 
 function openClearBacklogPanel() {
@@ -1818,7 +2129,10 @@ function setupEvents() {
   els.addTask.addEventListener("click", () => addTask("New task", "task"));
   els.addMeeting.addEventListener("click", () => addTask("Meeting", "meeting"));
   els.analyzeDump.addEventListener("click", analyzeDump);
-  els.reanalyzeDump.addEventListener("click", analyzeDump);
+  els.contextOrganize.addEventListener("click", () => analyzeDump({ mode: "context_organize" }));
+  els.reanalyzeDump.addEventListener("click", () => {
+    analyzeDump({ mode: state.reviewDraft && state.reviewDraft.type === "context_organize" ? "context_organize" : "brain_dump" });
+  });
   els.clearDump.addEventListener("click", () => {
     els.brainDump.value = "";
     updateDumpCharCount();
@@ -1828,6 +2142,7 @@ function setupEvents() {
   els.toggleDay.addEventListener("click", toggleDayTimer);
   els.openSettings.addEventListener("click", () => openDrawer(els.settingsPanel));
   els.closeSettings.addEventListener("click", () => closeDrawer(els.settingsPanel));
+  els.closeAgentExport.addEventListener("click", () => closeDrawer(els.agentExportPanel));
   els.clearLocalStorage.addEventListener("click", clearLocalStorageState);
   els.closeReview.addEventListener("click", () => closeDrawer(els.reviewPanel));
   els.closeTaskDetails.addEventListener("click", closeTaskDetails);
@@ -1901,6 +2216,15 @@ function setupEvents() {
     const task = getSelectedTask();
     if (!task) return;
     splitTask(task.id);
+  });
+  els.detailExportAgent.addEventListener("click", exportSelectedTaskToAgent);
+  els.copyAgentExport.addEventListener("click", async () => {
+    try {
+      await copyTextToClipboard(els.agentExportPrompt.value);
+      els.agentExportStatus.textContent = "Prompt copied to clipboard.";
+    } catch (err) {
+      els.agentExportStatus.textContent = "Could not copy automatically. Select the prompt and copy it manually.";
+    }
   });
   els.detailBreakdownAI.addEventListener("click", analyzeTaskBreakdown);
   els.detailBacklog.addEventListener("click", () => {

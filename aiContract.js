@@ -118,6 +118,43 @@
     },
   };
 
+  const contextOrganizeResponseSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["summary", "proposedTasks", "mergeSuggestions", "questions", "warnings"],
+    properties: {
+      summary: { type: "string" },
+      proposedTasks: plannerResponseSchema.properties.proposedTasks,
+      mergeSuggestions: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "taskId",
+            "reason",
+            "priorityScore",
+            "priorityReason",
+            "urgency",
+            "impact",
+            "subtasks",
+          ],
+          properties: {
+            taskId: { type: "string" },
+            reason: { type: "string" },
+            priorityScore: { type: "integer", minimum: 1, maximum: 100 },
+            priorityReason: { type: "string" },
+            urgency: { type: "integer", minimum: 1, maximum: 5 },
+            impact: { type: "integer", minimum: 1, maximum: 5 },
+            subtasks: plannerResponseSchema.properties.proposedTasks.items.properties.subtasks,
+          },
+        },
+      },
+      questions: plannerResponseSchema.properties.questions,
+      warnings: plannerResponseSchema.properties.warnings,
+    },
+  };
+
   const plannerSystemPrompt = [
     "You are Overrun Lite, an AI planning assistant.",
     "Turn messy brain dumps into concrete tasks for a local-first planner.",
@@ -136,9 +173,21 @@
     "Return only valid JSON matching the requested schema.",
   ].join(" ");
 
+  const contextOrganizeSystemPrompt = [
+    "You are Overrun Lite, a context-aware planning assistant.",
+    "Compare a new brain dump against the user's current planned tasks and backlog.",
+    "Propose genuinely new tasks, and propose merge suggestions when the dump overlaps existing tasks.",
+    "Merge suggestions may update priority, urgency, impact, priority reason, and append subtasks only.",
+    "Never delete, complete, move, resize, or schedule existing tasks.",
+    "Never claim work is done. Return only valid JSON matching the requested schema.",
+  ].join(" ");
+
   function buildPlannerMessages(payload) {
     if (payload && payload.mode === "task_breakdown") {
       return buildBreakdownMessages(payload);
+    }
+    if (payload && payload.mode === "context_organize") {
+      return buildContextOrganizeMessages(payload);
     }
     return [
       {
@@ -160,6 +209,53 @@
               impactScale: "1-5, where 5 is highest impact",
               defaultTaskMinutes: 60,
               minimumTaskMinutes: 10,
+            },
+          },
+          null,
+          2
+        ),
+      },
+    ];
+  }
+
+  function buildContextOrganizeMessages(payload) {
+    return [
+      {
+        role: "system",
+        content: contextOrganizeSystemPrompt,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(
+          {
+            mode: "context_organize",
+            input: payload.input,
+            answers: payload.answers || {},
+            currentTasks: payload.currentTasks || [],
+            currentBacklog: payload.currentBacklog || [],
+            instructions: {
+              priorityScale: "1-100, where 100 is highest priority",
+              urgencyScale: "1-5, where 5 is most urgent",
+              impactScale: "1-5, where 5 is highest impact",
+              defaultTaskMinutes: 60,
+              minimumTaskMinutes: 10,
+              mergeOnlyByTaskId: true,
+              newTasksOnlyWhenNoSimilarExistingTaskExists: true,
+              allowedMergeEffects: [
+                "priorityScore",
+                "priorityReason",
+                "urgency",
+                "impact",
+                "subtasks",
+              ],
+              forbiddenMergeEffects: [
+                "delete",
+                "complete",
+                "move_to_calendar",
+                "move_to_backlog",
+                "resize",
+                "reschedule",
+              ],
             },
           },
           null,
@@ -235,6 +331,24 @@
     };
   }
 
+  function normalizeContextOrganizeResponse(value, context) {
+    const source = value && typeof value === "object" ? value : {};
+    const proposedTasks = collectTaskProposals(source);
+    return {
+      summary: String(source.summary || ""),
+      proposedTasks: proposedTasks.map(normalizeTaskProposal).filter(Boolean),
+      mergeSuggestions: collectMergeSuggestions(source)
+        .map((item) => normalizeMergeSuggestion(item, context))
+        .filter(Boolean),
+      questions: Array.isArray(source.questions)
+        ? source.questions.map(normalizeQuestion).filter(Boolean)
+        : [],
+      warnings: Array.isArray(source.warnings)
+        ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
+        : [],
+    };
+  }
+
   function collectTaskProposals(source) {
     if (Array.isArray(source.proposedTasks)) return source.proposedTasks;
     if (Array.isArray(source.tasks)) return source.tasks;
@@ -277,6 +391,40 @@
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
         : [],
     };
+  }
+
+  function collectMergeSuggestions(source) {
+    if (Array.isArray(source.mergeSuggestions)) return source.mergeSuggestions;
+    if (Array.isArray(source.merges)) return source.merges;
+    if (Array.isArray(source.updates)) return source.updates;
+    return [];
+  }
+
+  function normalizeMergeSuggestion(item, context) {
+    if (!item || typeof item !== "object") return null;
+    const taskId = String(item.taskId || item.id || item.targetTaskId || "").trim();
+    if (!taskId || !isKnownTaskId(taskId, context)) return null;
+    return {
+      taskId,
+      reason: String(item.reason || item.mergeReason || "Similar to the new brain dump.").trim(),
+      priorityScore: clampInt(item.priorityScore || item.priority, 1, 100, 50),
+      priorityReason: String(item.priorityReason || item.description || "Updated from latest brain dump.").trim(),
+      urgency: clampInt(item.urgency, 1, 5, 3),
+      impact: clampInt(item.impact, 1, 5, 3),
+      subtasks: Array.isArray(item.subtasks)
+        ? item.subtasks.map(normalizeSubtask).filter(Boolean)
+        : [],
+    };
+  }
+
+  function isKnownTaskId(taskId, context) {
+    if (!context) return true;
+    const taskLists = [
+      ...(Array.isArray(context.currentTasks) ? context.currentTasks : []),
+      ...(Array.isArray(context.currentBacklog) ? context.currentBacklog : []),
+    ];
+    if (!taskLists.length) return true;
+    return taskLists.some((task) => String(task && task.id || "") === taskId);
   }
 
   function collectSubtasks(source) {
@@ -356,10 +504,12 @@
 
   return {
     plannerResponseSchema,
+    contextOrganizeResponseSchema,
     buildPlannerMessages,
     breakdownResponseSchema,
     createEmptyPlannerResponse,
     normalizeBreakdownResponse,
+    normalizeContextOrganizeResponse,
     normalizePlannerResponse,
     extractJson,
   };

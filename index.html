@@ -52,6 +52,7 @@
           ></textarea>
           <div class="inbox-actions">
             <button id="analyze-dump" class="primary" data-testid="analyze-dump">Analyze dump</button>
+            <button id="context-organize" class="ghost" data-testid="context-organize">Context organize</button>
             <button id="clear-dump" class="ghost" data-testid="clear-dump">Clear</button>
             <span id="ai-status" class="status-line" role="status" data-testid="ai-status"></span>
             <span id="dump-char-count" class="char-count">0 / 1800</span>
@@ -278,7 +279,25 @@
           <button id="detail-toggle-done" class="ghost" data-testid="detail-toggle-done">Done</button>
           <button id="detail-split" class="ghost" data-testid="detail-split">Split</button>
           <button id="detail-backlog" class="ghost" data-testid="detail-backlog">Backlog</button>
+          <button id="detail-export-agent" class="ghost" data-testid="detail-export-agent">Export agent prompt</button>
           <button id="detail-delete" class="danger" data-testid="detail-delete">Delete</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="agent-export-panel" class="drawer" aria-hidden="true" data-testid="agent-export-drawer">
+      <div class="drawer-card wide">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">Agent export</p>
+            <h2>Prompt handoff</h2>
+          </div>
+          <button id="close-agent-export" class="ghost" data-testid="close-agent-export">Close</button>
+        </div>
+        <p id="agent-export-status" class="helper" data-testid="agent-export-status"></p>
+        <textarea id="agent-export-prompt" class="agent-export-prompt" data-testid="agent-export-prompt" rows="18" readonly></textarea>
+        <div class="drawer-actions">
+          <button id="copy-agent-export" class="primary" data-testid="copy-agent-export">Copy prompt</button>
         </div>
       </div>
     </aside>

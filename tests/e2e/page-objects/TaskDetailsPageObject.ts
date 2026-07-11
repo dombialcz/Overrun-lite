@@ -32,6 +32,18 @@ export class TaskDetailsPageObject {
     await this.page.getByTestId("detail-breakdown-ai").click();
   }
 
+  async exportAgentPrompt(): Promise<void> {
+    await this.page.getByTestId("detail-export-agent").click();
+  }
+
+  agentExportDrawer(): Locator {
+    return this.page.getByTestId("agent-export-drawer");
+  }
+
+  agentExportPrompt(): Locator {
+    return this.page.getByTestId("agent-export-prompt");
+  }
+
   subtasks(): Locator {
     return this.page.getByTestId("detail-subtasks").locator(".detail-subtask-row");
   }
