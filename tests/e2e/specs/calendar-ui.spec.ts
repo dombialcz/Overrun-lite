@@ -571,41 +571,52 @@ test("settings can clear API keys while keeping tasks", async ({ ui }) => {
 
 test("AI review skips existing tasks echoed by weak local models", async ({ ui }) => {
   await ui.calendar.addTask();
-  await ui.page.route("/api/plan", async (route) => {
+  await ui.settings.useLocalProvider({
+    baseUrl: "http://local-ai.test/v1",
+    model: "test-model",
+  });
+  await ui.page.route("**/chat/completions", async (route) => {
     await route.fulfill({
       contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({
-        currentTasks: [
-          {
-            title: "New task",
-            minutes: 60,
-            priorityScore: 50,
-            priorityReason: "Existing task echoed from context.",
-            urgency: 3,
-            impact: 3,
-            subtasks: [],
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              currentTasks: [
+                {
+                  title: "New task",
+                  minutes: 60,
+                  priorityScore: 50,
+                  priorityReason: "Existing task echoed from context.",
+                  urgency: 3,
+                  impact: 3,
+                  subtasks: [],
+                },
+              ],
+              currentBacklog: [
+                {
+                  title: "Make a cake",
+                  minutes: 140,
+                  priorityScore: 30,
+                  priorityReason: "Lacks a deadline and specific requirements.",
+                  urgency: 2,
+                  impact: 2,
+                  subtasks: [
+                    { title: "Select a cake recipe", minutes: 20 },
+                    { title: "Purchase all required ingredients", minutes: 45 },
+                  ],
+                },
+              ],
+              questions: [
+                "When do you need the cake to be ready by?",
+                "What kind of cake are you looking to make?",
+              ],
+              priorityUpdates: [],
+              warnings: [],
+            }),
           },
-        ],
-        currentBacklog: [
-          {
-            title: "Make a cake",
-            minutes: 140,
-            priorityScore: 30,
-            priorityReason: "Lacks a deadline and specific requirements.",
-            urgency: 2,
-            impact: 2,
-            subtasks: [
-              { title: "Select a cake recipe", minutes: 20 },
-              { title: "Purchase all required ingredients", minutes: 45 },
-            ],
-          },
-        ],
-        questions: [
-          "When do you need the cake to be ready by?",
-          "What kind of cake are you looking to make?",
-        ],
-        priorityUpdates: [],
-        warnings: [],
+        }],
       }),
     });
   });

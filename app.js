@@ -21,6 +21,15 @@ const DEFAULT_AI_SETTINGS = {
 };
 
 const ai = window.OverrunAI;
+const cloud = window.OverrunCloud;
+let activeStorageKey = STORAGE_KEY;
+let activeReviewKey = REVIEW_KEY;
+let activeUserId = null;
+let suppressCloudSave = false;
+let cloudCapabilities = { authEnabled: false, hostedAvailable: false };
+let cloudUser = null;
+let cloudUsage = null;
+let pendingInitialSyncChoice = null;
 
 const state = {
   tasks: [],
@@ -31,6 +40,17 @@ const state = {
 };
 
 const els = {
+  accountCopy: document.getElementById("account-copy"),
+  accountEmail: document.getElementById("account-email"),
+  accountEmailStatus: document.getElementById("account-email-status"),
+  accountHeading: document.getElementById("account-heading"),
+  accountPanel: document.getElementById("account-panel"),
+  accountPassword: document.getElementById("account-password"),
+  accountStatus: document.getElementById("account-status"),
+  activateAccount: document.getElementById("activate-account"),
+  activationForm: document.getElementById("activation-form"),
+  activationPassword: document.getElementById("activation-password"),
+  activationPasswordConfirm: document.getElementById("activation-password-confirm"),
   addTask: document.getElementById("add-task"),
   addMeeting: document.getElementById("add-meeting"),
   agentExportPanel: document.getElementById("agent-export-panel"),
@@ -49,12 +69,15 @@ const els = {
   clearBacklogPanel: document.getElementById("clear-backlog-panel"),
   clearDump: document.getElementById("clear-dump"),
   closeAgentExport: document.getElementById("close-agent-export"),
+  closeAccount: document.getElementById("close-account"),
   closeReview: document.getElementById("close-review"),
   closeSettings: document.getElementById("close-settings"),
   clearLocalStorage: document.getElementById("clear-local-storage"),
   closeTaskDetails: document.getElementById("close-task-details"),
   confirmClearBacklog: document.getElementById("confirm-clear-backlog"),
   confirmClearBacklogAction: document.getElementById("confirm-clear-backlog-action"),
+  conflictUseCloud: document.getElementById("conflict-use-cloud"),
+  conflictUseLocal: document.getElementById("conflict-use-local"),
   contextOrganize: document.getElementById("context-organize"),
   copyAgentExport: document.getElementById("copy-agent-export"),
   dayReport: document.getElementById("day-report"),
@@ -85,9 +108,14 @@ const els = {
   doneTime: document.getElementById("done-time"),
   exportBacklog: document.getElementById("export-backlog"),
   importBacklog: document.getElementById("import-backlog"),
+  initialSyncCloud: document.getElementById("initial-sync-cloud"),
+  initialSyncCopy: document.getElementById("initial-sync-copy"),
+  initialSyncLocal: document.getElementById("initial-sync-local"),
+  initialSyncPanel: document.getElementById("initial-sync-panel"),
   localApiKey: document.getElementById("local-api-key"),
   localBaseUrl: document.getElementById("local-base-url"),
   localModel: document.getElementById("local-model"),
+  openAccount: document.getElementById("open-account"),
   openSettings: document.getElementById("open-settings"),
   providerMode: document.getElementById("provider-mode"),
   reanalyzeDump: document.getElementById("reanalyze-dump"),
@@ -99,12 +127,18 @@ const els = {
   reviewWarnings: document.getElementById("review-warnings"),
   saveDay: document.getElementById("save-day"),
   saveSettings: document.getElementById("save-settings"),
+  signedInActions: document.getElementById("signed-in-actions"),
+  signInForm: document.getElementById("sign-in-form"),
+  signOut: document.getElementById("sign-out"),
   settingsPanel: document.getElementById("settings-panel"),
   sortBacklog: document.getElementById("sort-backlog"),
   status: document.getElementById("ai-status"),
+  syncConflictPanel: document.getElementById("sync-conflict-panel"),
+  syncStatus: document.getElementById("sync-status"),
   taskDetailsPanel: document.getElementById("task-details-panel"),
   toggleDay: document.getElementById("toggle-day"),
   totalTime: document.getElementById("total-time"),
+  aiUsage: document.getElementById("ai-usage"),
 };
 
 const dragState = {
@@ -180,7 +214,7 @@ function readJson(key, fallback) {
 }
 
 function loadState() {
-  const parsed = readJson(STORAGE_KEY, {});
+  const parsed = readJson(activeStorageKey, {});
   state.tasks = Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask) : [];
   assignSequentialStartsWhenMissing(state.tasks);
   state.backlog = Array.isArray(parsed.backlog) ? parsed.backlog.map(normalizeTask) : [];
@@ -188,14 +222,18 @@ function loadState() {
     ...DEFAULT_AI_SETTINGS,
     ...readJson(SETTINGS_KEY, {}),
   };
-  state.reviewDraft = readJson(REVIEW_KEY, null);
+  state.reviewDraft = readJson(activeReviewKey, null);
 }
 
 function saveState() {
+  const plannerState = { tasks: state.tasks, backlog: state.backlog };
   safeSet(
-    STORAGE_KEY,
-    JSON.stringify({ tasks: state.tasks, backlog: state.backlog })
+    activeStorageKey,
+    JSON.stringify(plannerState)
   );
+  if (!suppressCloudSave && activeUserId && cloud) {
+    cloud.scheduleSave(plannerState);
+  }
 }
 
 function saveSettings() {
@@ -204,9 +242,9 @@ function saveSettings() {
 
 function saveReviewDraft() {
   if (state.reviewDraft) {
-    safeSet(REVIEW_KEY, JSON.stringify(state.reviewDraft));
+    safeSet(activeReviewKey, JSON.stringify(state.reviewDraft));
   } else {
-    safeRemove(REVIEW_KEY);
+    safeRemove(activeReviewKey);
   }
 }
 
@@ -214,8 +252,8 @@ function clearLocalStorageState() {
   if (!confirm("Clear local AI settings and API keys from this browser? Current tasks and backlog will be kept.")) {
     return;
   }
-  [SETTINGS_KEY, REVIEW_KEY].forEach(safeRemove);
-  [SETTINGS_KEY, REVIEW_KEY].forEach((key) => {
+  [SETTINGS_KEY, activeReviewKey].forEach(safeRemove);
+  [SETTINGS_KEY, activeReviewKey].forEach((key) => {
     delete memoryStore[key];
   });
   state.selectedTaskId = null;
@@ -231,6 +269,158 @@ function clearLocalStorageState() {
   setStatus("Local AI settings cleared. Tasks and backlog were kept.");
 }
 
+function getPlannerState() {
+  return {
+    tasks: state.tasks.map(serializeTask),
+    backlog: state.backlog.map(serializeTask),
+  };
+}
+
+function applyPlannerState(plannerState) {
+  const source = plannerState && typeof plannerState === "object" ? plannerState : {};
+  suppressCloudSave = true;
+  state.tasks = Array.isArray(source.tasks) ? source.tasks.map(normalizeTask) : [];
+  assignSequentialStartsWhenMissing(state.tasks);
+  state.backlog = Array.isArray(source.backlog) ? source.backlog.map(normalizeTask) : [];
+  state.selectedTaskId = null;
+  pauseTimer();
+  closeDrawer(els.taskDetailsPanel);
+  saveState();
+  suppressCloudSave = false;
+  render();
+}
+
+function activateAccount(userId, plannerState) {
+  activeUserId = userId;
+  activeStorageKey = `${STORAGE_KEY}:${userId}`;
+  activeReviewKey = `${REVIEW_KEY}:${userId}`;
+  state.reviewDraft = readJson(activeReviewKey, null);
+  applyPlannerState(plannerState);
+}
+
+function activateGuest() {
+  if (activeUserId) {
+    safeRemove(`${STORAGE_KEY}:${activeUserId}`);
+    safeRemove(`${REVIEW_KEY}:${activeUserId}`);
+  }
+  activeUserId = null;
+  activeStorageKey = STORAGE_KEY;
+  activeReviewKey = REVIEW_KEY;
+  loadState();
+  render();
+}
+
+function chooseInitialSync({ hasCloud }) {
+  els.initialSyncCopy.textContent = hasCloud
+    ? "This browser and your account both contain planner data. Choose the complete version to keep."
+    : "This browser contains local planner data. Move it into your account to use it on other devices, or start with an empty account.";
+  els.initialSyncCloud.textContent = hasCloud ? "Use account data" : "Start with empty account";
+  openDrawer(els.initialSyncPanel);
+  return new Promise((resolve) => {
+    pendingInitialSyncChoice = resolve;
+  });
+}
+
+function finishInitialSyncChoice(choice) {
+  if (!pendingInitialSyncChoice) return;
+  const resolve = pendingInitialSyncChoice;
+  pendingInitialSyncChoice = null;
+  closeDrawer(els.initialSyncPanel);
+  resolve(choice);
+}
+
+function renderAccount(authState = {}) {
+  cloudUser = authState.user || null;
+  const activationRequired = Boolean(authState.activationRequired);
+  const signedIn = Boolean(cloudUser);
+  els.signInForm.classList.toggle("hidden", signedIn || activationRequired);
+  els.activationForm.classList.toggle("hidden", !activationRequired);
+  els.signedInActions.classList.toggle("hidden", !signedIn || activationRequired);
+  els.accountHeading.textContent = activationRequired
+    ? "Activate account"
+    : signedIn
+      ? "Your account"
+      : "Sign in";
+  els.accountCopy.textContent = activationRequired
+    ? "Create a password to finish activating this invite-only account."
+    : signedIn
+      ? "Your planner is connected to your account and can sync across devices."
+      : cloudCapabilities.authEnabled
+        ? "Accounts are invite-only during the beta. You can keep using this browser locally without signing in."
+        : "Cloud accounts are not configured on this deployment. Your planner remains local to this browser.";
+  els.accountEmailStatus.textContent = signedIn ? cloudUser.email || "" : "";
+  els.openAccount.textContent = signedIn ? cloudUser.email || "Account" : "Sign in";
+  els.openAccount.disabled = !cloudCapabilities.authEnabled;
+  if (authState.authError) {
+    setAccountStatus(authState.authError, true);
+    openDrawer(els.accountPanel);
+  }
+  if (activationRequired) openDrawer(els.accountPanel);
+  updateAIAvailability();
+}
+
+function setAccountStatus(message, isError = false) {
+  els.accountStatus.textContent = message;
+  els.accountStatus.classList.toggle("error", isError);
+}
+
+function setSyncStatus(status) {
+  els.syncStatus.textContent = status;
+}
+
+function renderAIUsage(nextUsage) {
+  cloudUsage = nextUsage;
+  if (!cloudUser) {
+    els.aiUsage.textContent = "";
+  } else if (nextUsage) {
+    els.aiUsage.textContent = `${nextUsage.used} / ${nextUsage.limit} AI actions today`;
+  } else if (!cloudCapabilities.hostedAvailable) {
+    els.aiUsage.textContent = "Hosted AI unavailable";
+  } else {
+    els.aiUsage.textContent = "AI usage unavailable";
+  }
+  els.aiUsage.classList.toggle(
+    "custom-provider",
+    state.aiSettings.providerMode === "local"
+  );
+  if (state.aiSettings.providerMode === "local" && cloudUser) {
+    const base = els.aiUsage.textContent;
+    els.aiUsage.textContent = base ? `Using custom settings · ${base}` : "Using custom settings";
+  }
+  updateAIAvailability();
+}
+
+function updateAIAvailability() {
+  const useLocal = state.aiSettings.providerMode === "local";
+  const limitReached = Boolean(cloudUsage && cloudUsage.remaining <= 0);
+  const hostedDisabled = !cloudUser || !cloudCapabilities.hostedAvailable || limitReached;
+  const disabled = !useLocal && hostedDisabled;
+  const reason = !cloudUser
+    ? "Sign in to use hosted AI."
+    : !cloudCapabilities.hostedAvailable
+      ? "Hosted AI is unavailable on this deployment."
+      : limitReached
+        ? "Daily hosted AI allowance used."
+        : "";
+  [els.analyzeDump, els.contextOrganize, els.reanalyzeDump, els.detailBreakdownAI]
+    .forEach((button) => {
+      button.disabled = disabled;
+      button.title = disabled ? reason : "";
+    });
+  renderAIUsageLabelOnly();
+}
+
+function renderAIUsageLabelOnly() {
+  els.aiUsage.classList.toggle(
+    "custom-provider",
+    state.aiSettings.providerMode === "local"
+  );
+}
+
+function showSyncConflict() {
+  openDrawer(els.syncConflictPanel);
+}
+
 function formatDuration(minutes) {
   const safeMinutes = Math.max(0, Math.round(Number(minutes) || 0));
   const hours = Math.floor(safeMinutes / 60);
@@ -239,9 +429,10 @@ function formatDuration(minutes) {
 }
 
 function createId(prefix = "task") {
-  const current = Number(safeGet(ID_COUNTER_KEY) || "0") + 1;
-  safeSet(ID_COUNTER_KEY, String(current));
-  return `${prefix}-${current}`;
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return `${prefix}-${window.crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function clampNumber(value, min, max, fallback) {
@@ -620,10 +811,11 @@ function getTaskVisualEndMinutes(task) {
 }
 
 function buildCalendarLayout(tasks = state.tasks) {
+  const taskOrder = new Map(tasks.map((task, index) => [task.id, index]));
   const sorted = [...tasks].sort((a, b) => {
     if (a.startMinutes !== b.startMinutes) return a.startMinutes - b.startMinutes;
     if (b.minutes !== a.minutes) return b.minutes - a.minutes;
-    return String(a.id).localeCompare(String(b.id));
+    return taskOrder.get(a.id) - taskOrder.get(b.id);
   });
   const layout = new Map();
   const cluster = [];
@@ -1517,6 +1709,7 @@ function render() {
   renderSettings();
   renderReview();
   updateDayTimerDisplay();
+  updateAIAvailability();
 }
 
 function setStatus(message, isError = false) {
@@ -1692,9 +1885,7 @@ async function analyzeDump(options = {}) {
   } catch (err) {
     setStatus(readableAIError(err), true);
   } finally {
-    els.analyzeDump.disabled = false;
-    els.contextOrganize.disabled = false;
-    els.reanalyzeDump.disabled = false;
+    updateAIAvailability();
     els.thinkingOverlay.setAttribute("aria-hidden", "true");
   }
 }
@@ -1734,7 +1925,7 @@ async function analyzeTaskBreakdown() {
   } catch (err) {
     setStatus(readableAIError(err), true);
   } finally {
-    els.detailBreakdownAI.disabled = false;
+    updateAIAvailability();
     els.thinkingOverlay.setAttribute("aria-hidden", "true");
   }
 }
@@ -1747,15 +1938,26 @@ async function requestAIPlan(payload) {
 }
 
 async function requestVercelAI(payload) {
+  const accessToken = cloud ? cloud.getAccessToken() : "";
+  if (!accessToken) {
+    throw new Error("Sign in to use hosted AI.");
+  }
   const response = await fetch("/api/plan", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
     body: JSON.stringify(payload),
   });
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(json.error || "Vercel AI endpoint failed.");
+    if (json.usage) renderAIUsage(json.usage);
+    const error = new Error(json.error || "Vercel AI endpoint failed.");
+    error.code = json.code || "request_failed";
+    throw error;
   }
+  if (cloud) await cloud.refreshUsage();
   return json;
 }
 
@@ -2140,10 +2342,72 @@ function setupEvents() {
   });
   els.brainDump.addEventListener("input", updateDumpCharCount);
   els.toggleDay.addEventListener("click", toggleDayTimer);
+  els.openAccount.addEventListener("click", () => {
+    setAccountStatus("");
+    openDrawer(els.accountPanel);
+  });
+  els.closeAccount.addEventListener("click", () => closeDrawer(els.accountPanel));
   els.openSettings.addEventListener("click", () => openDrawer(els.settingsPanel));
   els.closeSettings.addEventListener("click", () => closeDrawer(els.settingsPanel));
   els.closeAgentExport.addEventListener("click", () => closeDrawer(els.agentExportPanel));
   els.clearLocalStorage.addEventListener("click", clearLocalStorageState);
+  els.signInForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setAccountStatus("Signing in...");
+    try {
+      await cloud.signIn(els.accountEmail.value, els.accountPassword.value);
+      els.accountPassword.value = "";
+      setAccountStatus("");
+      closeDrawer(els.accountPanel);
+    } catch (err) {
+      setAccountStatus(err.message || "Could not sign in.", true);
+    }
+  });
+  els.activationForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (els.activationPassword.value !== els.activationPasswordConfirm.value) {
+      setAccountStatus("Passwords do not match.", true);
+      return;
+    }
+    setAccountStatus("Activating...");
+    try {
+      await cloud.setPassword(els.activationPassword.value);
+      els.activationPassword.value = "";
+      els.activationPasswordConfirm.value = "";
+      setAccountStatus("Account activated.");
+      renderAccount({ user: cloudUser, activationRequired: false });
+      closeDrawer(els.accountPanel);
+    } catch (err) {
+      setAccountStatus(err.message || "Could not activate the account.", true);
+    }
+  });
+  els.signOut.addEventListener("click", async () => {
+    setAccountStatus("Signing out...");
+    try {
+      await cloud.signOut();
+      setAccountStatus("");
+      closeDrawer(els.accountPanel);
+    } catch (err) {
+      setAccountStatus(err.message || "Could not sign out.", true);
+    }
+  });
+  els.initialSyncLocal.addEventListener("click", () => finishInitialSyncChoice("local"));
+  els.initialSyncCloud.addEventListener("click", () => finishInitialSyncChoice("cloud"));
+  els.conflictUseCloud.addEventListener("click", async () => {
+    const resolved = await cloud.resolveConflict("cloud");
+    if (resolved) closeDrawer(els.syncConflictPanel);
+  });
+  els.conflictUseLocal.addEventListener("click", async () => {
+    els.conflictUseLocal.disabled = true;
+    try {
+      const resolved = await cloud.resolveConflict("local");
+      if (resolved) closeDrawer(els.syncConflictPanel);
+    } catch (err) {
+      setStatus("Could not resolve the sync conflict. Your local work is still safe.", true);
+    } finally {
+      els.conflictUseLocal.disabled = false;
+    }
+  });
   els.closeReview.addEventListener("click", () => closeDrawer(els.reviewPanel));
   els.closeTaskDetails.addEventListener("click", closeTaskDetails);
   els.applyReview.addEventListener("click", applyReviewDraft);
@@ -2250,6 +2514,7 @@ function setupEvents() {
       localApiKey: els.localApiKey.value,
     };
     saveSettings();
+    renderAIUsage(cloudUsage);
     setStatus("AI settings saved.");
     closeDrawer(els.settingsPanel);
   });
@@ -2489,7 +2754,33 @@ function buildDayReport() {
   return lines.join("\n");
 }
 
-loadState();
-setupEvents();
-render();
-setupDragAndResize();
+async function boot() {
+  loadState();
+  setupEvents();
+  render();
+  setupDragAndResize();
+  if (!cloud) return;
+  await cloud.init({
+    getPlannerState,
+    chooseInitialSync,
+    onAccount: activateAccount,
+    onGuest: activateGuest,
+    onCapabilities(capabilities) {
+      cloudCapabilities = capabilities;
+      renderAccount({
+        user: cloudUser,
+        activationRequired: false,
+      });
+    },
+    onAuth: renderAccount,
+    onConflict: showSyncConflict,
+    onSyncStatus: setSyncStatus,
+    onUsage: renderAIUsage,
+  });
+}
+
+boot().catch((err) => {
+  console.warn("Cloud initialization failed", err);
+  setSyncStatus("Local only");
+  updateAIAvailability();
+});

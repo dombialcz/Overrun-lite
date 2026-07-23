@@ -8,46 +8,96 @@ const {
   normalizePlannerResponse,
   plannerResponseSchema,
 } = require("../aiContract");
+const {
+  apiError,
+  handleOptions,
+  requireUser,
+  sendError,
+  setApiHeaders,
+} = require("./_supabase");
+const { normalizeUsage } = require("./ai-usage");
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
 module.exports = async function handler(req, res) {
-  setCorsHeaders(res);
-
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
-  }
+  if (handleOptions(req, res, ["POST", "OPTIONS"])) return;
+  setApiHeaders(req, res, ["POST", "OPTIONS"]);
 
   if (req.method !== "POST") {
-    res.status(405).json({ error: "Only POST is supported." });
+    res.status(405).json({ error: "Only POST is supported.", code: "method_not_allowed" });
     return;
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: "OPENAI_API_KEY is not configured." });
+    res.status(503).json({
+      error: "Hosted AI is not configured.",
+      code: "ai_unavailable",
+    });
     return;
   }
 
+  let reservation = null;
+  let admin = null;
+  let user = null;
   try {
+    ({ admin, user } = await requireUser(req));
     const payload = normalizeRequestBody(req.body);
+    reservation = await reserveAction(admin, user.id);
+    if (!reservation.allowed) {
+      res.status(429).json({
+        error: "Your daily hosted AI allowance has been used.",
+        code: "daily_limit_reached",
+        usage: normalizeUsage(reservation),
+      });
+      return;
+    }
     const result = await requestPlanner(payload, {
       apiKey,
       model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
       baseUrl: process.env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
     });
+    const usage = normalizeUsage(reservation);
+    res.setHeader("X-Overrun-AI-Used", String(usage.used));
+    res.setHeader("X-Overrun-AI-Limit", String(usage.limit));
+    res.setHeader("X-Overrun-AI-Reset", usage.resetAt || "");
     res.status(200).json(result);
   } catch (err) {
-    res.status(err.statusCode || 500).json({
-      error: err.message || "Planner request failed.",
-    });
+    if (reservation && reservation.allowed && !err.providerCompleted && admin && user) {
+      await releaseAction(admin, user.id, reservation.usage_day).catch(() => {});
+    }
+    if (err.statusCode === 400) err.expose = true;
+    if (!err.code && err.statusCode >= 500) err.code = "provider_error";
+    sendError(res, err);
   }
 };
 
+async function reserveAction(admin, userId) {
+  const { data, error } = await admin.rpc("reserve_ai_action", { p_user_id: userId });
+  if (error) throw apiError(503, "usage_unavailable", "AI usage is unavailable.");
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw apiError(503, "usage_unavailable", "AI usage is unavailable.");
+  return row;
+}
+
+async function releaseAction(admin, userId, usageDay) {
+  const { error } = await admin.rpc("release_ai_action", {
+    p_user_id: userId,
+    p_usage_day: usageDay,
+  });
+  if (error) throw error;
+}
+
 function normalizeRequestBody(body) {
-  const payload = typeof body === "string" ? JSON.parse(body) : body || {};
+  let payload = body || {};
+  if (typeof body === "string") {
+    try {
+      payload = JSON.parse(body);
+    } catch (err) {
+      throw badRequest("Request body must be valid JSON.");
+    }
+  }
   if (payload.mode === "task_breakdown") {
     const task = payload.task && typeof payload.task === "object" ? payload.task : null;
     if (!task || !String(task.title || task.name || "").trim()) {
@@ -79,16 +129,23 @@ function normalizeRequestBody(body) {
 }
 
 async function requestPlanner(payload, config) {
-  const messages = buildPlannerMessages(payload);
-  const { schema, schemaName } = getResponseSchema(payload.mode);
-  const response = await postChatCompletion(config, messages, true, schema, schemaName).catch(async (err) => {
-    if (!err.canRetryWithoutSchema) throw err;
-    return postChatCompletion(config, messages, false, schema, schemaName);
-  });
-  const parsed = extractJson(response);
-  if (payload.mode === "task_breakdown") return normalizeBreakdownResponse(parsed);
-  if (payload.mode === "context_organize") return normalizeContextOrganizeResponse(parsed, payload);
-  return normalizePlannerResponse(parsed);
+  let providerCompleted = false;
+  try {
+    const messages = buildPlannerMessages(payload);
+    const { schema, schemaName } = getResponseSchema(payload.mode);
+    const response = await postChatCompletion(config, messages, true, schema, schemaName).catch(async (err) => {
+      if (!err.canRetryWithoutSchema) throw err;
+      return postChatCompletion(config, messages, false, schema, schemaName);
+    });
+    providerCompleted = true;
+    const parsed = extractJson(response);
+    if (payload.mode === "task_breakdown") return normalizeBreakdownResponse(parsed);
+    if (payload.mode === "context_organize") return normalizeContextOrganizeResponse(parsed, payload);
+    return normalizePlannerResponse(parsed);
+  } catch (err) {
+    err.providerCompleted = providerCompleted;
+    throw err;
+  }
 }
 
 function getResponseSchema(mode) {
@@ -141,10 +198,12 @@ async function postChatCompletion(config, messages, useSchema, schema = plannerR
 
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = json.error && json.error.message ? json.error.message : "AI provider request failed.";
-    const err = new Error(message);
-    err.statusCode = response.status;
-    err.canRetryWithoutSchema = useSchema && /response_format|json_schema|schema/i.test(message);
+    const providerMessage = json.error && json.error.message ? json.error.message : "";
+    const err = new Error("Hosted AI could not complete the request.");
+    err.statusCode = 502;
+    err.code = "provider_error";
+    err.expose = true;
+    err.canRetryWithoutSchema = useSchema && /response_format|json_schema|schema/i.test(providerMessage);
     throw err;
   }
 
@@ -154,12 +213,6 @@ async function postChatCompletion(config, messages, useSchema, schema = plannerR
   return content;
 }
 
-function setCorsHeaders(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-}
-
 function trimSlash(value) {
   return String(value || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
@@ -167,5 +220,6 @@ function trimSlash(value) {
 function badRequest(message) {
   const err = new Error(message);
   err.statusCode = 400;
+  err.code = "invalid_request";
   return err;
 }

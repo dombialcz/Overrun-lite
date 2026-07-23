@@ -3,27 +3,39 @@ import { expect, test } from "../fixtures/ui.fixture";
 test.beforeEach(async ({ ui }) => {
   await ui.goto();
   await ui.resetState();
+  await ui.settings.useLocalProvider({
+    baseUrl: "http://local-ai.test/v1",
+    model: "test-model",
+  });
 });
 
 test("AI task breakdown is reviewed before applying subtasks", async ({ ui }) => {
-  await ui.page.route("**/api/plan", async (route) => {
+  await ui.page.route("**/chat/completions", async (route) => {
     const request = route.request();
     const payload = request.postDataJSON();
-    expect(payload.mode).toBe("task_breakdown");
-    expect(payload.granularity).toBe("large");
-    expect(payload.applyMode).toBe("append");
-    expect(payload.instructions).toContain("testing");
+    const prompt = payload.messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain("task_breakdown");
+    expect(prompt).toContain('"granularity": "large"');
+    expect(prompt).toContain('"applyMode": "append"');
+    expect(prompt).toContain("testing");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({
-        summary: "Two implementation subtasks proposed.",
-        subtasks: [
-          { title: "Map the current AI flow", minutes: 20 },
-          { title: "Add mocked review coverage", minutes: 35 },
-        ],
-        questions: [],
-        warnings: [],
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              summary: "Two implementation subtasks proposed.",
+              subtasks: [
+                { title: "Map the current AI flow", minutes: 20 },
+                { title: "Add mocked review coverage", minutes: 35 },
+              ],
+              questions: [],
+              warnings: [],
+            }),
+          },
+        }],
       }),
     });
   });
@@ -109,53 +121,61 @@ test("context organize reviews new tasks and merge suggestions before applying",
   });
   await ui.page.reload();
 
-  await ui.page.route("**/api/plan", async (route) => {
+  await ui.page.route("**/chat/completions", async (route) => {
     const payload = route.request().postDataJSON();
-    expect(payload.mode).toBe("context_organize");
-    expect(payload.input).toContain("cake ingredients");
-    expect(payload.currentTasks.map((task: { id: string }) => task.id)).toContain("planned-1");
-    expect(payload.currentBacklog.map((task: { id: string }) => task.id)).toContain("backlog-1");
+    const prompt = payload.messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain("context_organize");
+    expect(prompt).toContain("cake ingredients");
+    expect(prompt).toContain("planned-1");
+    expect(prompt).toContain("backlog-1");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({
-        summary: "Merged cake context and added one new task.",
-        proposedTasks: [
-          {
-            title: "Buy cake ingredients",
-            minutes: 35,
-            priorityScore: 70,
-            priorityReason: "Needed before baking.",
-            urgency: 4,
-            impact: 3,
-            subtasks: [],
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              summary: "Merged cake context and added one new task.",
+              proposedTasks: [
+                {
+                  title: "Buy cake ingredients",
+                  minutes: 35,
+                  priorityScore: 70,
+                  priorityReason: "Needed before baking.",
+                  urgency: 4,
+                  impact: 3,
+                  subtasks: [],
+                },
+              ],
+              mergeSuggestions: [
+                {
+                  taskId: "backlog-1",
+                  reason: "The dump adds concrete cake prep.",
+                  priorityScore: 88,
+                  priorityReason: "Cake prep is now time-sensitive.",
+                  urgency: 5,
+                  impact: 4,
+                  subtasks: [
+                    { title: "Choose a recipe", minutes: 15 },
+                    { title: "Check pantry for missing ingredients", minutes: 20 },
+                  ],
+                },
+                {
+                  taskId: "planned-1",
+                  reason: "Launch wording was mentioned but should not be applied.",
+                  priorityScore: 95,
+                  priorityReason: "Rejected merge.",
+                  urgency: 5,
+                  impact: 5,
+                  subtasks: [{ title: "Rejected subtask", minutes: 15 }],
+                },
+              ],
+              questions: [],
+              warnings: [],
+            }),
           },
-        ],
-        mergeSuggestions: [
-          {
-            taskId: "backlog-1",
-            reason: "The dump adds concrete cake prep.",
-            priorityScore: 88,
-            priorityReason: "Cake prep is now time-sensitive.",
-            urgency: 5,
-            impact: 4,
-            subtasks: [
-              { title: "Choose a recipe", minutes: 15 },
-              { title: "Check pantry for missing ingredients", minutes: 20 },
-            ],
-          },
-          {
-            taskId: "planned-1",
-            reason: "Launch wording was mentioned but should not be applied.",
-            priorityScore: 95,
-            priorityReason: "Rejected merge.",
-            urgency: 5,
-            impact: 5,
-            subtasks: [{ title: "Rejected subtask", minutes: 15 }],
-          },
-        ],
-        questions: [],
-        warnings: [],
+        }],
       }),
     });
   });

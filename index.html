@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: http:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
     <title>Overrun Lite - Daily Tasks</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -22,11 +26,16 @@
       <div class="summary-stack">
         <div class="summary" id="total-time">0h 0m planned</div>
         <div class="summary" id="done-time">0h 0m done</div>
+        <div class="summary cloud-summary">
+          <span id="sync-status" data-testid="sync-status">Local only</span>
+          <span id="ai-usage" class="ai-usage" data-testid="ai-usage"></span>
+        </div>
         <div class="summary timer-summary">
           <span>Day timer</span>
           <span id="day-timer">08:00:00</span>
           <button id="toggle-day" class="ghost">Start day</button>
         </div>
+        <button id="open-account" class="ghost" data-testid="open-account">Sign in</button>
         <button id="open-settings" class="ghost">Settings</button>
       </div>
     </header>
@@ -114,6 +123,81 @@
       <button id="clear-backlog" class="danger" data-testid="clear-backlog">Clear backlog</button>
       <input type="file" id="backlog-file" accept="application/json" hidden />
     </footer>
+
+    <aside id="account-panel" class="drawer" aria-hidden="true" data-testid="account-drawer">
+      <div class="drawer-card">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">Account</p>
+            <h2 id="account-heading">Sign in</h2>
+          </div>
+          <button id="close-account" class="ghost" data-testid="close-account">Close</button>
+        </div>
+        <p id="account-copy" class="helper">
+          Accounts are invite-only during the beta. You can keep using this browser locally without signing in.
+        </p>
+        <form id="sign-in-form" data-testid="sign-in-form">
+          <label for="account-email">Email</label>
+          <input id="account-email" data-testid="account-email" type="email" autocomplete="email" required />
+          <label for="account-password">Password</label>
+          <input id="account-password" data-testid="account-password" type="password" autocomplete="current-password" required />
+          <div class="drawer-actions">
+            <button id="sign-in" class="primary" data-testid="sign-in" type="submit">Sign in</button>
+          </div>
+        </form>
+        <form id="activation-form" class="hidden" data-testid="activation-form">
+          <label for="activation-password">Create password</label>
+          <input id="activation-password" data-testid="activation-password" type="password" autocomplete="new-password" minlength="12" required />
+          <label for="activation-password-confirm">Confirm password</label>
+          <input id="activation-password-confirm" data-testid="activation-password-confirm" type="password" autocomplete="new-password" minlength="12" required />
+          <p class="helper">Use at least 12 characters with upper and lowercase letters and a number.</p>
+          <div class="drawer-actions">
+            <button id="activate-account" class="primary" data-testid="activate-account" type="submit">Activate account</button>
+          </div>
+        </form>
+        <div id="signed-in-actions" class="hidden" data-testid="signed-in-actions">
+          <p id="account-email-status" class="account-email"></p>
+          <div class="drawer-actions">
+            <button id="sign-out" class="danger" data-testid="sign-out">Sign out on this device</button>
+          </div>
+        </div>
+        <p id="account-status" class="status-line" role="status" data-testid="account-status"></p>
+      </div>
+    </aside>
+
+    <aside id="initial-sync-panel" class="drawer" aria-hidden="true" data-testid="initial-sync-drawer">
+      <div class="drawer-card">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">First sync</p>
+            <h2>Choose your planner data</h2>
+          </div>
+        </div>
+        <p id="initial-sync-copy" class="helper"></p>
+        <div class="drawer-actions stacked-actions">
+          <button id="initial-sync-local" class="primary" data-testid="initial-sync-local">Use this device’s data</button>
+          <button id="initial-sync-cloud" class="ghost" data-testid="initial-sync-cloud">Use account data</button>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="sync-conflict-panel" class="drawer" aria-hidden="true" data-testid="sync-conflict-drawer">
+      <div class="drawer-card">
+        <div class="drawer-header">
+          <div>
+            <p class="eyebrow">Sync conflict</p>
+            <h2>Another device saved changes</h2>
+          </div>
+        </div>
+        <p class="helper">
+          Your unsynced work is still safe on this device. Choose which complete version should become current.
+        </p>
+        <div class="drawer-actions stacked-actions">
+          <button id="conflict-use-cloud" class="primary" data-testid="conflict-use-cloud">Reload account data</button>
+          <button id="conflict-use-local" class="danger" data-testid="conflict-use-local">Overwrite with this device</button>
+        </div>
+      </div>
+    </aside>
 
     <aside id="review-panel" class="drawer review-drawer" aria-hidden="true" data-testid="ai-review-drawer">
       <div class="drawer-card wide">
@@ -321,7 +405,12 @@
       <p class="thinking-notice">DO NOT CLOSE THIS TAB</p>
     </div>
 
+    <script
+      src="vendor/supabase-2.110.8.js"
+      integrity="sha384-M65KxMm/JqBppck6onbmAgPVMBHrmPCf1L17Q+71EcvI9/VVI8j5cqoxQf6lj6h2"
+    ></script>
     <script src="aiContract.js"></script>
+    <script src="cloud.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
