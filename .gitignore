@@ -4,3 +4,6 @@ test-results/
 blob-report/
 *.trace.zip
 tmp/
+.env
+.env.*
+!.env.example

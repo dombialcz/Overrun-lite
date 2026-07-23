@@ -57,6 +57,45 @@ body {
   border: 1px solid var(--stroke);
 }
 
+.cloud-summary {
+  display: inline-grid;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.ai-usage {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ai-usage.custom-provider {
+  opacity: 0.58;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.account-email {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.stacked-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.stacked-actions button {
+  width: 100%;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .inbox-shell {
   padding: 12px 40px 8px;
 }

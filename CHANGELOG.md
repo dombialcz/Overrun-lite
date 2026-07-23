@@ -7,6 +7,11 @@ All notable changes to Overrun Lite are documented here.
 ## [Unreleased]
 
 ### Added
+- **Invite-only Supabase accounts** — manually generated, one-time activation links now lead to password setup and persistent multi-device sessions without public sign-up.
+- **Conflict-safe cloud sync** — authenticated planner data syncs through revision-checked Supabase state with explicit first-login and concurrent-edit choices.
+- **Per-user hosted AI allowances** — Vercel AI requests require a valid Supabase session and atomically enforce a dashboard-editable 10-action Warsaw-day limit.
+- **Graceful static guest mode** — GitHub Pages and plain local serving stay local-only without missing configuration or API errors.
+- **Account and sync regression coverage** — Playwright now covers login, activation errors, first sync, sign-out isolation, revision conflicts, exhausted allowances, and local-provider override.
 - **GitHub Pages deployment** — project is now live at https://dombialcz.github.io/Overrun-lite/
 - **AI task breakdown** — selected tasks can now request AI-proposed subtasks with compact instructions, granularity, append/replace controls, and review-before-apply.
 - **AI contract tests** — added fast Node tests for planner and breakdown parsing/normalization behavior.
@@ -18,6 +23,9 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Secure AI proxy** — `/api/plan` no longer accepts anonymous requests or wildcard origins, keeps provider keys server-side, and returns stable authentication, quota, and availability errors.
+- **Collision-resistant IDs** — new task, subtask, and draft IDs use browser UUIDs so independently created device data cannot reuse local counters.
+- **Deployment hardening** — added restrictive content security, referrer, MIME-sniffing, frame, and permissions policies; the pinned Supabase browser client is vendored with integrity metadata.
 - **Backlog import** — imports are incremental, accept day snapshots and legacy arrays, and skip duplicates.
 - **Google Calendar import removed** — Google Calendar import controls and OAuth settings were removed from the app.
 - **Priority labels** — priority score (1–100) is now displayed as a human-readable label everywhere: `LOW` (1–25), `MEDIUM` (26–50), `HIGH` (51–75), `CRITICAL` (76–100). The task details drawer now shows a select dropdown instead of a number input.
