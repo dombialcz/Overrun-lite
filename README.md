@@ -30,8 +30,8 @@ reload-or-overwrite choice.
 ### Supabase setup
 
 1. Create a Supabase project.
-2. Run `supabase/migrations/202607230001_auth_sync_and_ai_quotas.sql` through
-   the Supabase SQL editor, or link the Supabase CLI and run `supabase db push`.
+2. Run the SQL files in `supabase/migrations/` in filename order through the
+   Supabase SQL editor, or link the Supabase CLI and run `supabase db push`.
 3. In Authentication settings:
    - Disable public user sign-ups. Admin invite generation still works.
    - Set the Site URL to the production `APP_ORIGIN`.

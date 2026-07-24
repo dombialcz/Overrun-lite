@@ -75,7 +75,10 @@ module.exports = async function handler(req, res) {
 
 async function reserveAction(admin, userId) {
   const { data, error } = await admin.rpc("reserve_ai_action", { p_user_id: userId });
-  if (error) throw apiError(503, "usage_unavailable", "AI usage is unavailable.");
+  if (error) {
+    logDatabaseError("reserve_ai_action", error);
+    throw apiError(503, "usage_unavailable", "AI usage is unavailable.");
+  }
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) throw apiError(503, "usage_unavailable", "AI usage is unavailable.");
   return row;
@@ -86,7 +89,19 @@ async function releaseAction(admin, userId, usageDay) {
     p_user_id: userId,
     p_usage_day: usageDay,
   });
-  if (error) throw error;
+  if (error) {
+    logDatabaseError("release_ai_action", error);
+    throw error;
+  }
+}
+
+function logDatabaseError(operation, error) {
+  console.error(`Supabase ${operation} failed`, {
+    code: String((error && error.code) || ""),
+    message: String((error && error.message) || ""),
+    details: String((error && error.details) || ""),
+    hint: String((error && error.hint) || ""),
+  });
 }
 
 function normalizeRequestBody(body) {
