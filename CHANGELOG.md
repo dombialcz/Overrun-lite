@@ -23,6 +23,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Hosted AI quota reservation** — fixed the atomic daily-usage reservation conflict clause and added sanitized server diagnostics for quota RPC failures.
 - **Invite activation callback** — invitation tokens are now consumed explicitly, removed from the address bar immediately, and covered by a token-shaped browser regression test before the password form opens.
 - **Secure AI proxy** — `/api/plan` no longer accepts anonymous requests or wildcard origins, keeps provider keys server-side, and returns stable authentication, quota, and availability errors.
 - **Collision-resistant IDs** — new task, subtask, and draft IDs use browser UUIDs so independently created device data cannot reuse local counters.

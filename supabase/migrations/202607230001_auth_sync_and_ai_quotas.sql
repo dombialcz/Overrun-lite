@@ -199,7 +199,7 @@ begin
 
   insert into public.ai_daily_usage (user_id, usage_day, used_actions)
   values (p_user_id, v_day, 1)
-  on conflict (user_id, usage_day) do update
+  on conflict on constraint ai_daily_usage_pkey do update
     set used_actions = public.ai_daily_usage.used_actions + 1,
         updated_at = now()
     where public.ai_daily_usage.used_actions < v_limit
