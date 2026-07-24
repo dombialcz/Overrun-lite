@@ -35,7 +35,7 @@
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          detectSessionInUrl: true,
+          detectSessionInUrl: false,
           flowType: "implicit",
         },
       }
@@ -61,6 +61,23 @@
       if (!user || syncPaused || !callbacks.getPlannerState) return;
       saveNow(callbacks.getPlannerState()).catch(() => emitSync("Offline"));
     });
+
+    const hasAuthFragment = hasAuthLinkFragment();
+    const authLinkSession = readAuthLinkSession();
+    if (hasAuthFragment) clearAuthFragment();
+    if (isActivation() && hasAuthFragment && !authLinkSession && !authLinkError) {
+      authLinkError = "This activation link could not be verified.";
+    }
+    if (authLinkSession) {
+      const { data, error } = await client.auth.setSession(authLinkSession);
+      if (error || !data || !data.session) {
+        authLinkError = "This activation link is expired or has already been used.";
+      } else {
+        authLinkError = "";
+        session = data.session;
+        user = session.user || null;
+      }
+    }
 
     const { data } = await client.auth.getSession();
     session = data && data.session ? data.session : null;
@@ -116,7 +133,7 @@
     authLinkError = "";
     const url = new URL(global.location.href);
     url.searchParams.delete("activation");
-    global.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    global.history.replaceState({}, "", `${url.pathname}${url.search}`);
     emitAuth();
   }
 
@@ -402,6 +419,34 @@
     return /expired|invalid|already/i.test(description)
       ? "This activation link is expired or has already been used."
       : "This activation link could not be verified.";
+  }
+
+  function readAuthLinkSession() {
+    if (!isActivation()) return null;
+    const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    if (!accessToken || !refreshToken) return null;
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    };
+  }
+
+  function hasAuthLinkFragment() {
+    const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
+    return [
+      "access_token",
+      "refresh_token",
+      "error",
+      "error_description",
+    ].some((name) => params.has(name));
+  }
+
+  function clearAuthFragment() {
+    if (!global.location.hash) return;
+    const url = new URL(global.location.href);
+    global.history.replaceState({}, "", `${url.pathname}${url.search}`);
   }
 
   global.OverrunCloud = {
