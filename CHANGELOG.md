@@ -23,6 +23,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Invite activation callback** — invitation tokens are now consumed explicitly, removed from the address bar immediately, and covered by a token-shaped browser regression test before the password form opens.
 - **Secure AI proxy** — `/api/plan` no longer accepts anonymous requests or wildcard origins, keeps provider keys server-side, and returns stable authentication, quota, and availability errors.
 - **Collision-resistant IDs** — new task, subtask, and draft IDs use browser UUIDs so independently created device data cannot reuse local counters.
 - **Deployment hardening** — added restrictive content security, referrer, MIME-sniffing, frame, and permissions policies; the pinned Supabase browser client is vendored with integrity metadata.

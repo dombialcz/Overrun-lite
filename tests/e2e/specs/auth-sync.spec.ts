@@ -125,11 +125,12 @@ test("exhausted hosted allowance disables AI but local provider remains availabl
 
 test("activation requires a strong matching password and clears the one-time URL", async ({ ui }) => {
   await mockCloud(ui.page);
-  await ui.goto();
-  await signIn(ui.page);
-  await ui.page.goto("/?activation=1");
+  await ui.page.goto(
+    `/?activation=1#access_token=${inviteAccessToken()}&refresh_token=test-refresh-token&type=invite`
+  );
 
   await expect(ui.page.getByTestId("activation-form")).toBeVisible();
+  await expect(ui.page).toHaveURL(/\/\?activation=1$/);
   await ui.page.getByTestId("activation-password").fill("alllowercase12");
   await ui.page.getByTestId("activation-password-confirm").fill("alllowercase12");
   await ui.page.getByTestId("activate-account").click();
@@ -146,6 +147,7 @@ test("expired or used activation links show a stable error", async ({ ui }) => {
   await mockCloud(ui.page);
   await ui.page.goto("/?activation=1#error=access_denied&error_description=Invite+link+has+expired");
   await expect(ui.page.getByTestId("account-drawer")).toHaveAttribute("aria-hidden", "false");
+  await expect(ui.page).toHaveURL(/\/\?activation=1$/);
   await expect(ui.page.getByTestId("account-status")).toHaveText(
     "This activation link is expired or has already been used."
   );
@@ -272,4 +274,19 @@ function task(id: string, name: string): Record<string, unknown> {
     impact: 3,
     subtasks: [],
   };
+}
+
+function inviteAccessToken(): string {
+  const encode = (value: Record<string, unknown>) => Buffer
+    .from(JSON.stringify(value))
+    .toString("base64url");
+  return [
+    encode({ alg: "ES256", typ: "JWT" }),
+    encode({
+      aud: "authenticated",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      sub: TEST_USER.id,
+    }),
+    "test-signature",
+  ].join(".");
 }
