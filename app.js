@@ -61,6 +61,9 @@ const els = {
   backlogFile: document.getElementById("backlog-file"),
   backlogList: document.getElementById("backlog-list"),
   backlogTemplate: document.getElementById("backlog-template"),
+  doneBacklog: document.getElementById("done-backlog"),
+  doneBacklogCount: document.getElementById("done-backlog-count"),
+  doneBacklogList: document.getElementById("done-backlog-list"),
   brainDump: document.getElementById("brain-dump"),
   calendarBlocks: document.getElementById("calendar-blocks"),
   cancelClearBacklog: document.getElementById("cancel-clear-backlog"),
@@ -455,6 +458,7 @@ function normalizeTask(task) {
     hasExplicitStart: source.startMinutes !== undefined && source.startMinutes !== null,
     elapsedMinutes,
     completed: Boolean(source.completed),
+    completedAt: isValidDateString(source.completedAt) ? source.completedAt : null,
     priorityScore: clampNumber(source.priorityScore, 1, 100, 50),
     priorityReason: String(source.priorityReason || "").trim(),
     urgency: clampNumber(source.urgency, 1, 5, 3),
@@ -475,6 +479,11 @@ function normalizeTask(task) {
       ? source.subtasks.map(normalizeSubtask).filter(Boolean)
       : [],
   };
+}
+
+function isValidDateString(value) {
+  if (typeof value !== "string" || !value.trim()) return false;
+  return Number.isFinite(Date.parse(value));
 }
 
 function normalizeSubtask(item) {
@@ -586,6 +595,7 @@ function pushToBacklog(id) {
 function pickFromBacklog(id) {
   const taskIndex = state.backlog.findIndex((item) => item.id === id);
   if (taskIndex === -1) return;
+  if (state.backlog[taskIndex].completed) return;
   const [task] = state.backlog.splice(taskIndex, 1);
   state.tasks.push(task);
   saveState();
@@ -604,21 +614,49 @@ function removeTask(id) {
   render();
 }
 
-function markTaskDone(id) {
-  const task = state.tasks.find((item) => item.id === id);
-  if (!task) return;
-  task.completed = !task.completed;
-  task.elapsedMinutes = task.completed ? task.minutes : Math.min(task.elapsedMinutes, task.minutes);
+function archiveCompletedTask(id) {
+  const taskIndex = state.tasks.findIndex((item) => item.id === id);
+  if (taskIndex === -1) return;
+  const [task] = state.tasks.splice(taskIndex, 1);
+  task.completed = true;
+  task.completedAt = new Date().toISOString();
+  task.elapsedMinutes = task.minutes;
+  if (timerState.activeId === id) {
+    pauseTimer();
+  }
+  const firstDoneIndex = state.backlog.findIndex((item) => item.completed);
+  state.backlog.splice(firstDoneIndex === -1 ? state.backlog.length : firstDoneIndex, 0, task);
+  sortBacklogByPriority();
+  if (state.selectedTaskId === id) {
+    state.selectedTaskId = null;
+    closeDrawer(els.taskDetailsPanel);
+  }
   saveState();
   render();
+}
+
+function restoreCompletedTask(id) {
+  const task = state.backlog.find((item) => item.id === id && item.completed);
+  if (!task) return;
+  task.completed = false;
+  task.completedAt = null;
+  task.elapsedMinutes = 0;
+  sortBacklogByPriority();
+  saveState();
+  renderBacklog();
 }
 
 function setElapsedMinutes(id, minutes) {
   const task = state.tasks.find((item) => item.id === id);
   if (!task) return;
   const next = Math.max(0, Math.min(task.minutes, minutes));
+  if (next >= task.minutes) {
+    archiveCompletedTask(id);
+    return;
+  }
   task.elapsedMinutes = next;
-  task.completed = task.elapsedMinutes >= task.minutes;
+  task.completed = false;
+  task.completedAt = null;
   saveState();
   renderCalendar();
 }
@@ -702,9 +740,8 @@ function tickTimer() {
   timerState.remainderMs -= minutesToAdd * 60000;
   task.elapsedMinutes = Math.min(task.minutes, task.elapsedMinutes + minutesToAdd);
   if (task.elapsedMinutes >= task.minutes) {
-    task.elapsedMinutes = task.minutes;
-    task.completed = true;
-    pauseTimer();
+    archiveCompletedTask(task.id);
+    return;
   }
   saveState();
   renderCalendar();
@@ -975,13 +1012,49 @@ function applyStableDragLanes(layout) {
 
 function renderBacklog() {
   els.backlogList.innerHTML = "";
-  state.backlog.forEach((task) => {
+  const openTasks = state.backlog.filter((task) => !task.completed);
+  const doneTasks = state.backlog
+    .map((task, index) => ({ task, index }))
+    .filter(({ task }) => task.completed)
+    .sort((a, b) => {
+      if (a.task.completedAt && b.task.completedAt) {
+        return Date.parse(b.task.completedAt) - Date.parse(a.task.completedAt);
+      }
+      if (a.task.completedAt) return -1;
+      if (b.task.completedAt) return 1;
+      return a.index - b.index;
+    })
+    .map(({ task }) => task);
+
+  openTasks.forEach((task) => {
+    els.backlogList.appendChild(createBacklogCard(task, "pick"));
+  });
+
+  if (!openTasks.length) {
+    els.backlogList.textContent = "Backlog is empty.";
+  }
+
+  els.doneBacklogCount.textContent = String(doneTasks.length);
+  els.doneBacklogList.innerHTML = "";
+  doneTasks.forEach((task) => {
+    els.doneBacklogList.appendChild(createBacklogCard(task, "restore"));
+  });
+  if (!doneTasks.length) {
+    els.doneBacklogList.textContent = "No completed tasks yet.";
+  }
+}
+
+function createBacklogCard(task, action) {
     const node = els.backlogTemplate.content.cloneNode(true);
     const card = node.querySelector(".task-card");
-    card.dataset.testid = "backlog-item";
+    const isDone = action === "restore";
+    card.dataset.testid = isDone ? "done-backlog-item" : "backlog-item";
     card.dataset.taskId = task.id;
+    card.classList.toggle("done", isDone);
     node.querySelector(".task-title").textContent = task.name;
-    node.querySelector(".task-time").textContent = `${formatDuration(task.minutes)} planned`;
+    node.querySelector(".task-time").textContent = isDone
+      ? `${formatDuration(task.minutes)} completed`
+      : `${formatDuration(task.minutes)} planned`;
     const subtaskSummary = formatSubtaskProgress(task);
     const metaParts = [
       priorityLabel(task),
@@ -997,15 +1070,13 @@ function renderBacklog() {
       item.textContent = `${subtask.title} (${formatDuration(subtask.minutes)})`;
       subtaskList.appendChild(item);
     });
-    node.querySelector("button").addEventListener("click", () => {
-      pickFromBacklog(task.id);
+    const button = node.querySelector("button");
+    button.textContent = isDone ? "Restore" : "Pick up";
+    button.addEventListener("click", () => {
+      if (isDone) restoreCompletedTask(task.id);
+      else pickFromBacklog(task.id);
     });
-    els.backlogList.appendChild(node);
-  });
-
-  if (!state.backlog.length) {
-    els.backlogList.textContent = "Backlog is empty.";
-  }
+    return node;
 }
 
 function renderCalendar(options = {}) {
@@ -1726,11 +1797,14 @@ function closeDrawer(drawer) {
 }
 
 function sortBacklogByPriority() {
-  state.backlog.sort((a, b) => {
+  const openTasks = state.backlog.filter((task) => !task.completed);
+  const doneTasks = state.backlog.filter((task) => task.completed);
+  openTasks.sort((a, b) => {
     if (b.priorityScore !== a.priorityScore) return b.priorityScore - a.priorityScore;
     if (b.urgency !== a.urgency) return b.urgency - a.urgency;
     return b.impact - a.impact;
   });
+  state.backlog = [...openTasks, ...doneTasks];
 }
 
 function createPlannerPayload(mode = "brain_dump") {
@@ -1739,7 +1813,7 @@ function createPlannerPayload(mode = "brain_dump") {
     input: els.brainDump.value.trim(),
     answers: state.reviewDraft ? state.reviewDraft.answers : {},
     currentTasks: state.tasks.map(summarizeTaskForAI),
-    currentBacklog: state.backlog.map(summarizeTaskForAI),
+    currentBacklog: state.backlog.filter((task) => !task.completed).map(summarizeTaskForAI),
   };
 }
 
@@ -2249,12 +2323,12 @@ function closeClearBacklogPanel() {
 
 function clearBacklogConfirmed() {
   if (!els.confirmClearBacklog.checked) return;
-  const count = state.backlog.length;
-  state.backlog = [];
+  const count = state.backlog.filter((task) => !task.completed).length;
+  state.backlog = state.backlog.filter((task) => task.completed);
   saveState();
   closeClearBacklogPanel();
   render();
-  setStatus(`${count} backlog item${count === 1 ? "" : "s"} cleared.`);
+  setStatus(`${count} open backlog item${count === 1 ? "" : "s"} cleared.`);
 }
 
 function reorderTasks(dragId, targetId) {
@@ -2435,9 +2509,22 @@ function setupEvents() {
     }, { render: "calendar" });
   });
   els.detailTaskProgress.addEventListener("input", () => {
+    const task = getSelectedTask();
+    if (!task) return;
+    const elapsedMinutes = clampNumber(
+      els.detailTaskProgress.value,
+      0,
+      task.minutes,
+      task.elapsedMinutes
+    );
+    if (elapsedMinutes >= task.minutes) {
+      archiveCompletedTask(task.id);
+      return;
+    }
     updateSelectedTask((task) => {
-      task.elapsedMinutes = clampNumber(els.detailTaskProgress.value, 0, task.minutes, task.elapsedMinutes);
-      task.completed = task.elapsedMinutes >= task.minutes;
+      task.elapsedMinutes = elapsedMinutes;
+      task.completed = false;
+      task.completedAt = null;
     }, { render: "calendar" });
   });
   els.detailPriorityScore.addEventListener("change", () => {
@@ -2474,7 +2561,7 @@ function setupEvents() {
   els.detailToggleDone.addEventListener("click", () => {
     const task = getSelectedTask();
     if (!task) return;
-    markTaskDone(task.id);
+    archiveCompletedTask(task.id);
   });
   els.detailSplit.addEventListener("click", () => {
     const task = getSelectedTask();
@@ -2548,6 +2635,7 @@ function serializeTask(task) {
     hasExplicitStart: task.hasExplicitStart,
     elapsedMinutes: task.elapsedMinutes,
     completed: task.completed,
+    completedAt: task.completedAt,
     priorityScore: task.priorityScore,
     priorityReason: task.priorityReason,
     urgency: task.urgency,

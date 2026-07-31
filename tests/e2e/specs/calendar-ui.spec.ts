@@ -26,6 +26,43 @@ test("calendar task blocks stay compact and open task details", async ({ ui }) =
   expect(ui.consoleErrors).toEqual([]);
 });
 
+test("completing tasks archives them immediately in newest-first Done order", async ({ ui }) => {
+  await ui.calendar.addTask();
+  await ui.calendar.addTask();
+
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-task-title").fill("First completed");
+  await ui.taskDetails.markDone();
+
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  await expect(ui.backlog.doneSection).not.toHaveAttribute("open", "");
+  await expect(ui.backlog.doneToggle).toContainText("1");
+
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-task-title").fill("Latest completed");
+  await ui.taskDetails.setProgress(60);
+
+  await expect(ui.calendar.blocks()).toHaveCount(0);
+  await ui.backlog.doneToggle.click();
+  await expect(ui.backlog.doneItems()).toHaveCount(2);
+  await expect(ui.backlog.doneItems().nth(0)).toContainText("Latest completed");
+  await expect(ui.backlog.doneItems().nth(1)).toContainText("First completed");
+});
+
+test("restoring a Done task returns it to the open backlog with reset progress", async ({ ui }) => {
+  await ui.calendar.addTask();
+  await ui.calendar.openTask(0);
+  await ui.taskDetails.markDone();
+  await ui.backlog.doneToggle.click();
+  await ui.backlog.doneItems().getByRole("button", { name: "Restore" }).click();
+
+  await expect(ui.backlog.doneItems()).toHaveCount(0);
+  await expect(ui.backlog.items()).toHaveCount(1);
+  const stored = await ui.page.evaluate(() => JSON.parse(localStorage.getItem("overrun_lite_state") || "{}"));
+  expect(stored.backlog[0]).toMatchObject({ completed: false, completedAt: null, elapsedMinutes: 0 });
+});
+
 test("short task keeps a readable minimum height", async ({ ui }) => {
   await ui.calendar.addTask();
   await ui.calendar.openTask(0);
