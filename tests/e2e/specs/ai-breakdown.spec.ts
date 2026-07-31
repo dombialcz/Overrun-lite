@@ -63,9 +63,10 @@ test("AI task breakdown is reviewed before applying subtasks", async ({ ui }) =>
   await ui.aiReview.apply();
 
   await expect(ui.aiReview.drawer).toHaveAttribute("aria-hidden", "true");
+  await ui.calendar.openTask(0);
   await expect(ui.taskDetails.subtasks()).toHaveCount(2);
-  await expect(ui.taskDetails.drawer).toContainText("Trace AI request and response flow");
-  await expect(ui.taskDetails.drawer).toContainText("New action");
+  await expect(ui.taskDetails.subtasks().nth(0).getByTestId("detail-subtask-title")).toHaveValue("Trace AI request and response flow");
+  await expect(ui.taskDetails.subtasks().nth(1).getByTestId("detail-subtask-title")).toHaveValue("New action");
 
   const storedAfterApply = await ui.page.evaluate(() =>
     JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")

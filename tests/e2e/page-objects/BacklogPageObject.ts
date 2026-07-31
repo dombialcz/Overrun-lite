@@ -11,6 +11,10 @@ export class BacklogPageObject {
     return this.page.getByTestId("backlog-item");
   }
 
+  async editItem(index: number): Promise<void> {
+    await this.items().nth(index).getByTestId("edit-backlog-item").click();
+  }
+
   get doneSection(): Locator {
     return this.page.getByTestId("done-backlog");
   }

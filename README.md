@@ -32,6 +32,18 @@ also gives ordinary dark-theme tasks their controlled maroon emphasis. Light
 mode uses flat white and floral-white surfaces without decorative gradients;
 dark mode keeps its quieter panel treatment.
 
+## Task creation and editing
+
+`Add task` and `Add meeting` open a draft editor. Nothing is added to the day
+until the required title and other changes are explicitly created; editing an
+existing day or open backlog item likewise uses Save or Cancel instead of
+persisting every keystroke.
+
+Subtasks can be added, renamed, estimated, completed, and removed directly in
+the task editor. Priority and progress settings are kept in a collapsed details
+section, while `Help me get started` stays folded until AI suggestions are
+needed. AI-proposed subtasks still use the separate review-before-apply flow.
+
 ## Invite-only accounts and sync
 
 The canonical Vercel deployment uses Supabase Auth and Postgres. Signed-in users

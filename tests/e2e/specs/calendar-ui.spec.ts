@@ -92,7 +92,6 @@ test("resize grip changes task block height", async ({ ui }) => {
   await ui.calendar.addTask();
   await ui.calendar.openTask(0);
   await ui.taskDetails.setDuration(10);
-  await ui.taskDetails.close();
 
   const before = await ui.calendar.blockMetrics(0);
   await ui.calendar.resizeBlock(0, 80);
@@ -125,7 +124,6 @@ test("overlapping tasks are allowed and flagged", async ({ ui }) => {
 
   await ui.calendar.openTask(0);
   await ui.taskDetails.setStartTime("09:00");
-  await ui.taskDetails.close();
 
   await ui.calendar.openTask(1);
   await ui.taskDetails.setStartTime("09:00");
@@ -575,7 +573,8 @@ test("calendar block shows subtask completion progress", async ({ ui }) => {
   expect(metrics.overflow).toBe(false);
 
   await ui.calendar.openTask(0);
-  await ui.page.getByTestId("detail-subtasks").locator("input").nth(1).check();
+  await ui.taskDetails.subtasks().nth(1).getByTestId("detail-subtask-completed").check();
+  await ui.taskDetails.save();
 
   metrics = await ui.calendar.blockMetrics(0);
   expect(metrics.text).toContain("Sub 2/3");

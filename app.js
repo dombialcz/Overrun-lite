@@ -36,6 +36,7 @@ const state = {
   tasks: [],
   backlog: [],
   selectedTaskId: null,
+  selectedTaskLocation: null,
   reviewDraft: null,
   aiSettings: { ...DEFAULT_AI_SETTINGS },
 };
@@ -67,6 +68,7 @@ const els = {
   doneBacklogList: document.getElementById("done-backlog-list"),
   brainDump: document.getElementById("brain-dump"),
   calendarBlocks: document.getElementById("calendar-blocks"),
+  cancelTaskEditor: document.getElementById("cancel-task-editor"),
   cancelClearBacklog: document.getElementById("cancel-clear-backlog"),
   cancelClearBacklogSecondary: document.getElementById("cancel-clear-backlog-secondary"),
   clearBacklog: document.getElementById("clear-backlog"),
@@ -87,11 +89,16 @@ const els = {
   dayReport: document.getElementById("day-report"),
   dayTimer: document.getElementById("day-timer"),
   detailBacklog: document.getElementById("detail-backlog"),
+  detailAISection: document.getElementById("detail-ai-section"),
+  detailAddSubtask: document.getElementById("detail-add-subtask"),
+  detailAdvanced: document.getElementById("detail-advanced"),
+  detailAdvancedSummary: document.getElementById("detail-advanced-summary"),
   detailBreakdownAI: document.getElementById("detail-breakdown-ai"),
   detailBreakdownApplyMode: document.getElementById("detail-breakdown-apply-mode"),
   detailBreakdownGranularity: document.getElementById("detail-breakdown-granularity"),
   detailBreakdownInstructions: document.getElementById("detail-breakdown-instructions"),
   detailDelete: document.getElementById("detail-delete"),
+  detailEyebrow: document.getElementById("detail-eyebrow"),
   detailExportAgent: document.getElementById("detail-export-agent"),
   detailHeading: document.getElementById("detail-heading"),
   detailImpact: document.getElementById("detail-impact"),
@@ -101,7 +108,9 @@ const els = {
   thinkingOverlay: document.getElementById("thinking-overlay"),
   detailSplit: document.getElementById("detail-split"),
   detailSubtasks: document.getElementById("detail-subtasks"),
+  detailTaskActions: document.getElementById("detail-task-actions"),
   detailTaskStart: document.getElementById("detail-task-start"),
+  detailTaskStartField: document.getElementById("detail-task-start-field"),
   detailTaskDuration: document.getElementById("detail-task-duration"),
   detailTaskProgress: document.getElementById("detail-task-progress"),
   detailTaskTitle: document.getElementById("detail-task-title"),
@@ -145,9 +154,11 @@ const els = {
   syncConflictPanel: document.getElementById("sync-conflict-panel"),
   syncStatus: document.getElementById("sync-status"),
   taskDetailsPanel: document.getElementById("task-details-panel"),
+  taskEditorForm: document.getElementById("task-editor-form"),
   themeToggle: document.getElementById("theme-toggle"),
   toggleDay: document.getElementById("toggle-day"),
   totalTime: document.getElementById("total-time"),
+  saveTaskEditor: document.getElementById("save-task-editor"),
   aiUsage: document.getElementById("ai-usage"),
 };
 
@@ -178,6 +189,12 @@ const dayTimer = {
   remainingSeconds: 8 * 60 * 60,
   intervalId: null,
   lastTick: 0,
+};
+
+const taskEditorState = {
+  mode: null,
+  location: null,
+  draft: null,
 };
 
 function getPixelsPerMinute() {
@@ -304,7 +321,7 @@ function clearLocalStorageState() {
   [SETTINGS_KEY, activeReviewKey].forEach((key) => {
     delete memoryStore[key];
   });
-  state.selectedTaskId = null;
+  resetTaskEditorState();
   state.reviewDraft = null;
   state.aiSettings = { ...DEFAULT_AI_SETTINGS };
   els.brainDump.value = "";
@@ -330,7 +347,7 @@ function applyPlannerState(plannerState) {
   state.tasks = Array.isArray(source.tasks) ? source.tasks.map(normalizeTask) : [];
   assignSequentialStartsWhenMissing(state.tasks);
   state.backlog = Array.isArray(source.backlog) ? source.backlog.map(normalizeTask) : [];
-  state.selectedTaskId = null;
+  resetTaskEditorState();
   pauseTimer();
   closeDrawer(els.taskDetailsPanel);
   saveState();
@@ -567,13 +584,6 @@ function createTask(name, minutes = DEFAULT_MINUTES, type = "task", overrides = 
   });
 }
 
-function addTask(name, type = "task") {
-  if (!name.trim()) return;
-  state.tasks.push(createTask(name.trim(), DEFAULT_MINUTES, type));
-  saveState();
-  render();
-}
-
 function assignSequentialStartsWhenMissing(tasks) {
   let cursor = 0;
   tasks.forEach((task) => {
@@ -627,7 +637,7 @@ function splitTask(id) {
     })
   );
   state.tasks.splice(taskIndex, 1, ...splitTasks);
-  state.selectedTaskId = null;
+  resetTaskEditorState();
   saveState();
   render();
   closeDrawer(els.taskDetailsPanel);
@@ -640,7 +650,7 @@ function pushToBacklog(id) {
   const [task] = state.tasks.splice(taskIndex, 1);
   state.backlog.unshift(task);
   if (state.selectedTaskId === id) {
-    state.selectedTaskId = null;
+    resetTaskEditorState();
     closeDrawer(els.taskDetailsPanel);
   }
   sortBacklogByPriority();
@@ -654,16 +664,8 @@ function pickFromBacklog(id) {
   if (state.backlog[taskIndex].completed) return;
   const [task] = state.backlog.splice(taskIndex, 1);
   state.tasks.push(task);
-  saveState();
-  render();
-}
-
-function removeTask(id) {
-  const taskIndex = state.tasks.findIndex((item) => item.id === id);
-  if (taskIndex === -1) return;
-  state.tasks.splice(taskIndex, 1);
   if (state.selectedTaskId === id) {
-    state.selectedTaskId = null;
+    resetTaskEditorState();
     closeDrawer(els.taskDetailsPanel);
   }
   saveState();
@@ -684,7 +686,7 @@ function archiveCompletedTask(id) {
   state.backlog.splice(firstDoneIndex === -1 ? state.backlog.length : firstDoneIndex, 0, task);
   sortBacklogByPriority();
   if (state.selectedTaskId === id) {
-    state.selectedTaskId = null;
+    resetTaskEditorState();
     closeDrawer(els.taskDetailsPanel);
   }
   saveState();
@@ -1126,7 +1128,13 @@ function createBacklogCard(task, action) {
       item.textContent = `${subtask.title} (${formatDuration(subtask.minutes)})`;
       subtaskList.appendChild(item);
     });
-    const button = node.querySelector("button");
+    const editButton = node.querySelector('[data-action="edit"]');
+    editButton.hidden = isDone;
+    editButton.dataset.testid = "edit-backlog-item";
+    editButton.addEventListener("click", () => {
+      openTaskDetails(task.id, "backlog");
+    });
+    const button = node.querySelector('[data-action="pick"]');
     button.textContent = isDone ? "Restore" : "Pick up";
     button.addEventListener("click", () => {
       if (isDone) restoreCompletedTask(task.id);
@@ -1306,7 +1314,7 @@ function renderCalendar(options = {}) {
     els.calendarBlocks.appendChild(block);
   });
 
-  if (!options.skipDetails) {
+  if (!options.skipDetails && !taskEditorState.draft) {
     renderTaskDetails();
   }
 }
@@ -1343,35 +1351,82 @@ function buildSplitGroupInfo() {
   return info;
 }
 
-function getSelectedTask() {
-  if (!state.selectedTaskId) return null;
-  return state.tasks.find((task) => task.id === state.selectedTaskId) || null;
+function cloneTask(task) {
+  return {
+    ...task,
+    subtasks: task.subtasks.map((subtask) => ({ ...subtask })),
+  };
 }
 
-function openTaskDetails(id) {
-  state.selectedTaskId = id;
+function getTaskCollection(location) {
+  return location === "backlog" ? state.backlog : state.tasks;
+}
+
+function resetTaskEditorState() {
+  state.selectedTaskId = null;
+  state.selectedTaskLocation = null;
+  taskEditorState.mode = null;
+  taskEditorState.location = null;
+  taskEditorState.draft = null;
+}
+
+function prepareTaskEditorDrawer() {
+  els.detailAdvanced.open = false;
+  els.detailAISection.open = false;
+  els.detailBreakdownInstructions.value = "";
+  els.detailBreakdownGranularity.value = "medium";
+  els.detailBreakdownApplyMode.value = "append";
+  els.detailTaskTitle.setCustomValidity("");
   openDrawer(els.taskDetailsPanel);
-  renderCalendar();
   renderTaskDetails();
+  window.requestAnimationFrame(() => els.detailTaskTitle.focus());
+}
+
+function openNewTaskEditor(type = "task") {
+  const draft = createTask("Untitled", DEFAULT_MINUTES, type);
+  draft.name = "";
+  state.selectedTaskId = draft.id;
+  state.selectedTaskLocation = "tasks";
+  taskEditorState.mode = "create";
+  taskEditorState.location = "tasks";
+  taskEditorState.draft = draft;
+  prepareTaskEditorDrawer();
+}
+
+function openTaskDetails(id, location = "tasks") {
+  const task = getTaskCollection(location).find((item) => item.id === id);
+  if (!task || (location === "backlog" && task.completed)) return;
+  state.selectedTaskId = id;
+  state.selectedTaskLocation = location;
+  taskEditorState.mode = "edit";
+  taskEditorState.location = location;
+  taskEditorState.draft = cloneTask(task);
+  prepareTaskEditorDrawer();
+  renderCalendar({ skipDetails: true });
 }
 
 function closeTaskDetails() {
-  state.selectedTaskId = null;
+  resetTaskEditorState();
   closeDrawer(els.taskDetailsPanel);
-  renderCalendar();
+  renderCalendar({ skipDetails: true });
 }
 
 function renderTaskDetails() {
-  const task = getSelectedTask();
-  const hasTask = Boolean(task);
-  if (!hasTask) {
+  const task = taskEditorState.draft;
+  if (!task || !taskEditorState.mode) {
     els.taskDetailsPanel.setAttribute("aria-hidden", "true");
     return;
   }
 
-  els.detailHeading.textContent = task.name;
+  const isCreate = taskEditorState.mode === "create";
+  const isBacklog = taskEditorState.location === "backlog";
+  const kind = task.type === "meeting" ? "meeting" : "task";
+  els.detailEyebrow.textContent = isCreate ? "New planner item" : isBacklog ? "Backlog item" : "Day item";
+  els.detailHeading.textContent = `${isCreate ? "Create" : "Edit"} ${kind}`;
+  els.detailTaskTitle.placeholder = kind === "meeting" ? "Meeting title" : "What needs doing?";
   els.detailTaskTitle.value = task.name;
   els.detailTaskStart.value = formatClockTime(task.startMinutes);
+  els.detailTaskStartField.hidden = isBacklog;
   els.detailTaskDuration.value = String(task.minutes);
   els.detailTaskProgress.max = String(task.minutes);
   els.detailTaskProgress.value = String(task.elapsedMinutes);
@@ -1379,54 +1434,183 @@ function renderTaskDetails() {
   els.detailImpact.value = String(task.impact);
   els.detailUrgency.value = String(task.urgency);
   els.detailPriorityReason.value = task.priorityReason;
+  els.detailAdvancedSummary.textContent = `${scoreToLabel(task.priorityScore)} · ${formatDuration(task.elapsedMinutes)} done`;
+  els.detailTaskActions.hidden = isCreate;
+  els.detailAISection.hidden = isCreate;
+  els.detailToggleTimer.hidden = isBacklog;
+  els.detailToggleDone.hidden = isBacklog;
+  els.detailSplit.hidden = isBacklog;
   els.detailToggleTimer.textContent = timerState.activeId === task.id ? "Pause" : "Start";
-  els.detailToggleDone.textContent = task.completed ? "Undo done" : "Done";
+  els.detailToggleDone.textContent = "Done";
+  els.detailBacklog.textContent = isBacklog ? "Pick up" : "Move to backlog";
+  els.saveTaskEditor.textContent = isCreate ? `Create ${kind}` : "Save changes";
   renderDetailSubtasks(task);
+}
+
+function createVisuallyHiddenLabel(text) {
+  const span = document.createElement("span");
+  span.className = "visually-hidden";
+  span.textContent = text;
+  return span;
 }
 
 function renderDetailSubtasks(task) {
   els.detailSubtasks.innerHTML = "";
   if (!task.subtasks.length) {
     const empty = document.createElement("p");
-    empty.className = "helper";
-    empty.textContent = "No subtasks for this task.";
+    empty.className = "helper detail-subtask-empty";
+    empty.textContent = "No subtasks yet.";
     els.detailSubtasks.appendChild(empty);
     return;
   }
 
-  task.subtasks.forEach((subtask) => {
-    const label = document.createElement("label");
-    label.className = "detail-subtask-row";
+  task.subtasks.forEach((subtask, index) => {
+    const row = document.createElement("div");
+    row.className = "detail-subtask-row";
+    row.dataset.testid = "detail-subtask-row";
+
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = subtask.completed;
+    checkbox.dataset.testid = "detail-subtask-completed";
+    checkbox.setAttribute("aria-label", `Mark ${subtask.title || "new subtask"} complete`);
     checkbox.addEventListener("change", () => {
       subtask.completed = checkbox.checked;
-      saveState();
-      renderCalendar({ skipDetails: true });
-      renderBacklog();
     });
-    const text = document.createElement("span");
-    text.textContent = `${subtask.title} (${formatDuration(subtask.minutes)})`;
-    label.append(checkbox, text);
-    els.detailSubtasks.appendChild(label);
+
+    const titleLabel = document.createElement("label");
+    titleLabel.className = "detail-subtask-title-field";
+    titleLabel.appendChild(createVisuallyHiddenLabel("Subtask title"));
+    const title = document.createElement("input");
+    title.type = "text";
+    title.maxLength = 180;
+    title.placeholder = "Subtask title";
+    title.value = subtask.title;
+    title.dataset.testid = "detail-subtask-title";
+    title.addEventListener("input", () => {
+      subtask.title = title.value;
+      checkbox.setAttribute("aria-label", `Mark ${title.value.trim() || "new subtask"} complete`);
+    });
+    titleLabel.appendChild(title);
+
+    const minutesLabel = document.createElement("label");
+    minutesLabel.className = "detail-subtask-minutes-field";
+    minutesLabel.appendChild(createVisuallyHiddenLabel("Subtask minutes"));
+    const minutes = document.createElement("input");
+    minutes.type = "number";
+    minutes.min = "5";
+    minutes.max = "240";
+    minutes.step = "5";
+    minutes.value = String(subtask.minutes);
+    minutes.dataset.testid = "detail-subtask-minutes";
+    minutes.addEventListener("input", () => {
+      subtask.minutes = clampNumber(minutes.value, 5, 240, subtask.minutes);
+    });
+    minutesLabel.appendChild(minutes);
+
+    const remove = makeButton("Remove", () => {
+      task.subtasks.splice(index, 1);
+      renderDetailSubtasks(task);
+    });
+    remove.className = "ghost detail-subtask-remove";
+    remove.dataset.testid = "detail-remove-subtask";
+    remove.setAttribute("aria-label", `Remove ${subtask.title || "new subtask"}`);
+    row.append(checkbox, titleLabel, minutesLabel, remove);
+    els.detailSubtasks.appendChild(row);
   });
 }
 
-function updateSelectedTask(mutator, options = {}) {
-  const task = getSelectedTask();
-  if (!task) return;
-  mutator(task);
-  task.elapsedMinutes = Math.min(task.elapsedMinutes, task.minutes);
-  task.completed = task.elapsedMinutes >= task.minutes ? true : task.completed;
-  task.startMinutes = clampStartMinutes(task.startMinutes, task.minutes);
-  saveState();
-  if (options.render === "calendar") {
-    renderCalendar({ skipDetails: true });
-    renderBacklog();
-  } else if (options.render !== false) {
-    render();
+function syncTaskEditorDraftFromFields({ validate = false } = {}) {
+  const task = taskEditorState.draft;
+  if (!task) return null;
+  const title = els.detailTaskTitle.value.trim();
+  els.detailTaskTitle.setCustomValidity(title ? "" : "Enter a title.");
+  if (validate && !els.taskEditorForm.reportValidity()) return null;
+
+  task.name = title;
+  task.minutes = clampNumber(els.detailTaskDuration.value, MIN_MINUTES, 480, task.minutes);
+  task.elapsedMinutes = clampNumber(els.detailTaskProgress.value, 0, task.minutes, task.elapsedMinutes);
+  task.startMinutes = clampStartMinutes(
+    parseClockTime(els.detailTaskStart.value, task.startMinutes),
+    task.minutes
+  );
+  task.hasExplicitStart = true;
+  task.priorityScore = labelToScore(els.detailPriorityScore.value);
+  task.impact = clampNumber(els.detailImpact.value, 1, 5, task.impact);
+  task.urgency = clampNumber(els.detailUrgency.value, 1, 5, task.urgency);
+  task.priorityReason = els.detailPriorityReason.value.trim();
+  task.subtasks = task.subtasks
+    .filter((subtask) => String(subtask.title || "").trim())
+    .map((subtask) => normalizeSubtask(subtask))
+    .filter(Boolean);
+  return normalizeTask(task);
+}
+
+function commitTaskEditor({ closeAfter = true, silent = false } = {}) {
+  const nextTask = syncTaskEditorDraftFromFields({ validate: true });
+  if (!nextTask) return null;
+  const mode = taskEditorState.mode;
+  const location = taskEditorState.location;
+
+  if (mode === "create") {
+    state.tasks.push(nextTask);
+  } else {
+    const collection = getTaskCollection(location);
+    const index = collection.findIndex((task) => task.id === nextTask.id);
+    if (index === -1) return null;
+    collection[index] = nextTask;
+    if (location === "backlog") sortBacklogByPriority();
   }
+
+  if (location === "tasks" && mode === "edit" && nextTask.elapsedMinutes >= nextTask.minutes) {
+    archiveCompletedTask(nextTask.id);
+    return null;
+  }
+
+  saveState();
+  if (!silent) {
+    setStatus(mode === "create" ? `${nextTask.type === "meeting" ? "Meeting" : "Task"} created.` : "Task changes saved.");
+  }
+  if (closeAfter) {
+    resetTaskEditorState();
+    closeDrawer(els.taskDetailsPanel);
+  } else {
+    taskEditorState.mode = "edit";
+    taskEditorState.draft = cloneTask(nextTask);
+  }
+  renderBacklog();
+  renderCalendar({ skipDetails: true });
+  return nextTask;
+}
+
+function addEditorSubtask() {
+  const task = taskEditorState.draft;
+  if (!task) return;
+  task.subtasks.push({
+    id: createId("subtask"),
+    title: "",
+    minutes: 25,
+    completed: false,
+  });
+  renderDetailSubtasks(task);
+  window.requestAnimationFrame(() => {
+    const inputs = els.detailSubtasks.querySelectorAll('[data-testid="detail-subtask-title"]');
+    const last = inputs[inputs.length - 1];
+    if (last) last.focus();
+  });
+}
+
+function removeSelectedTask() {
+  if (taskEditorState.mode !== "edit" || !state.selectedTaskId) return;
+  const collection = getTaskCollection(taskEditorState.location);
+  const index = collection.findIndex((task) => task.id === state.selectedTaskId);
+  if (index === -1) return;
+  const [removed] = collection.splice(index, 1);
+  if (timerState.activeId === removed.id) pauseTimer();
+  resetTaskEditorState();
+  closeDrawer(els.taskDetailsPanel);
+  saveState();
+  render();
 }
 
 function renderSettings() {
@@ -2051,7 +2235,7 @@ async function analyzeDump(options = {}) {
 }
 
 async function analyzeTaskBreakdown() {
-  const task = getSelectedTask();
+  const task = commitTaskEditor({ closeAfter: false, silent: true });
   if (!task) {
     setStatus("Select a task before requesting a breakdown.", true);
     return;
@@ -2080,6 +2264,7 @@ async function analyzeTaskBreakdown() {
     };
     saveReviewDraft();
     setStatus("Breakdown ready for review.");
+    closeTaskDetails();
     openDrawer(els.reviewPanel);
     renderReview();
   } catch (err) {
@@ -2378,7 +2563,7 @@ async function copyTextToClipboard(text) {
 }
 
 async function exportSelectedTaskToAgent() {
-  const task = getSelectedTask();
+  const task = commitTaskEditor({ closeAfter: false, silent: true });
   if (!task) {
     setStatus("Select a task before exporting an agent prompt.", true);
     return;
@@ -2489,8 +2674,8 @@ function setupDragAndResize() {
 }
 
 function setupEvents() {
-  els.addTask.addEventListener("click", () => addTask("New task", "task"));
-  els.addMeeting.addEventListener("click", () => addTask("Meeting", "meeting"));
+  els.addTask.addEventListener("click", () => openNewTaskEditor("task"));
+  els.addMeeting.addEventListener("click", () => openNewTaskEditor("meeting"));
   els.analyzeDump.addEventListener("click", analyzeDump);
   els.contextOrganize.addEventListener("click", () => analyzeDump({ mode: "context_organize" }));
   els.reanalyzeDump.addEventListener("click", () => {
@@ -2606,87 +2791,55 @@ function setupEvents() {
   });
   els.closeReview.addEventListener("click", () => closeDrawer(els.reviewPanel));
   els.closeTaskDetails.addEventListener("click", closeTaskDetails);
+  els.cancelTaskEditor.addEventListener("click", closeTaskDetails);
+  els.detailAddSubtask.addEventListener("click", addEditorSubtask);
+  els.taskEditorForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    commitTaskEditor();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || els.taskDetailsPanel.getAttribute("aria-hidden") === "true") return;
+    if (els.reviewPanel.getAttribute("aria-hidden") === "false" || els.agentExportPanel.getAttribute("aria-hidden") === "false") return;
+    closeTaskDetails();
+  });
   els.applyReview.addEventListener("click", applyReviewDraft);
   els.discardReview.addEventListener("click", discardReviewDraft);
-  els.detailTaskStart.addEventListener("input", () => {
-    updateSelectedTask((task) => {
-      task.startMinutes = clampStartMinutes(
-        parseClockTime(els.detailTaskStart.value, task.startMinutes),
-        task.minutes
-      );
-      task.hasExplicitStart = true;
-    }, { render: "calendar" });
-  });
-  els.detailTaskTitle.addEventListener("input", () => {
-    updateSelectedTask((task) => {
-      task.name = els.detailTaskTitle.value.trim() || "Untitled";
-      els.detailHeading.textContent = task.name;
-    }, { render: "calendar" });
-  });
   els.detailTaskDuration.addEventListener("input", () => {
-    updateSelectedTask((task) => {
-      task.minutes = clampNumber(els.detailTaskDuration.value, MIN_MINUTES, 480, task.minutes);
-      task.startMinutes = clampStartMinutes(task.startMinutes, task.minutes);
-      els.detailTaskProgress.max = String(task.minutes);
-    }, { render: "calendar" });
+    els.detailTaskProgress.max = String(clampNumber(
+      els.detailTaskDuration.value,
+      MIN_MINUTES,
+      480,
+      DEFAULT_MINUTES
+    ));
   });
-  els.detailTaskProgress.addEventListener("input", () => {
-    const task = getSelectedTask();
-    if (!task) return;
-    const elapsedMinutes = clampNumber(
-      els.detailTaskProgress.value,
-      0,
-      task.minutes,
-      task.elapsedMinutes
-    );
-    if (elapsedMinutes >= task.minutes) {
-      archiveCompletedTask(task.id);
-      return;
-    }
-    updateSelectedTask((task) => {
-      task.elapsedMinutes = elapsedMinutes;
-      task.completed = false;
-      task.completedAt = null;
-    }, { render: "calendar" });
+  [els.detailTaskDuration, els.detailTaskProgress].forEach((input) => {
+    input.addEventListener("input", () => {
+      const minutes = clampNumber(els.detailTaskProgress.value, 0, 480, 0);
+      els.detailAdvancedSummary.textContent = `${els.detailPriorityScore.value} · ${formatDuration(minutes)} done`;
+    });
   });
   els.detailPriorityScore.addEventListener("change", () => {
-    updateSelectedTask((task) => {
-      task.priorityScore = labelToScore(els.detailPriorityScore.value);
-    }, { render: "calendar" });
-  });
-  els.detailImpact.addEventListener("input", () => {
-    updateSelectedTask((task) => {
-      task.impact = clampNumber(els.detailImpact.value, 1, 5, task.impact);
-    }, { render: "calendar" });
-  });
-  els.detailUrgency.addEventListener("input", () => {
-    updateSelectedTask((task) => {
-      task.urgency = clampNumber(els.detailUrgency.value, 1, 5, task.urgency);
-    }, { render: "calendar" });
-  });
-  els.detailPriorityReason.addEventListener("input", () => {
-    updateSelectedTask((task) => {
-      task.priorityReason = els.detailPriorityReason.value.trim();
-    }, { render: false });
+    const minutes = clampNumber(els.detailTaskProgress.value, 0, 480, 0);
+    els.detailAdvancedSummary.textContent = `${els.detailPriorityScore.value} · ${formatDuration(minutes)} done`;
   });
   els.detailToggleTimer.addEventListener("click", () => {
-    const task = getSelectedTask();
+    const task = commitTaskEditor({ closeAfter: false, silent: true });
     if (!task) return;
     if (timerState.activeId === task.id) {
       pauseTimer();
-      renderTaskDetails();
+      closeTaskDetails();
     } else {
       startTimer(task.id);
       closeTaskDetails();
     }
   });
   els.detailToggleDone.addEventListener("click", () => {
-    const task = getSelectedTask();
+    const task = commitTaskEditor({ closeAfter: false, silent: true });
     if (!task) return;
     archiveCompletedTask(task.id);
   });
   els.detailSplit.addEventListener("click", () => {
-    const task = getSelectedTask();
+    const task = commitTaskEditor({ closeAfter: false, silent: true });
     if (!task) return;
     splitTask(task.id);
   });
@@ -2701,15 +2854,13 @@ function setupEvents() {
   });
   els.detailBreakdownAI.addEventListener("click", analyzeTaskBreakdown);
   els.detailBacklog.addEventListener("click", () => {
-    const task = getSelectedTask();
+    const location = taskEditorState.location;
+    const task = commitTaskEditor({ closeAfter: false, silent: true });
     if (!task) return;
-    pushToBacklog(task.id);
+    if (location === "backlog") pickFromBacklog(task.id);
+    else pushToBacklog(task.id);
   });
-  els.detailDelete.addEventListener("click", () => {
-    const task = getSelectedTask();
-    if (!task) return;
-    removeTask(task.id);
-  });
+  els.detailDelete.addEventListener("click", removeSelectedTask);
   els.sortBacklog.addEventListener("click", () => {
     sortBacklogByPriority();
     saveState();

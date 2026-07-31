@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260731-button-states" />
+    <link rel="stylesheet" href="styles.css?v=20260731-task-editor" />
   </head>
   <body>
     <div class="bg-layer"></div>
@@ -330,96 +330,141 @@
       </div>
     </aside>
 
-    <aside id="task-details-panel" class="drawer" aria-hidden="true" data-testid="task-details-drawer">
-      <div class="drawer-card">
-        <div class="drawer-header">
-          <div>
-            <p class="eyebrow">Task details</p>
-            <h2 id="detail-heading">Selected task</h2>
+    <aside
+      id="task-details-panel"
+      class="drawer"
+      aria-hidden="true"
+      aria-modal="true"
+      aria-labelledby="detail-heading"
+      role="dialog"
+      data-testid="task-details-drawer"
+    >
+      <div class="drawer-card task-editor-card">
+        <form id="task-editor-form" class="task-editor-form" data-testid="task-editor-form">
+          <div class="drawer-header task-editor-header">
+            <div>
+              <p id="detail-eyebrow" class="eyebrow">Task editor</p>
+              <h2 id="detail-heading">Create task</h2>
+            </div>
+            <button id="close-task-details" class="ghost" type="button" data-testid="close-task-details">Close</button>
           </div>
-          <button id="close-task-details" class="ghost" data-testid="close-task-details">Close</button>
-        </div>
 
-        <label for="detail-task-title">Title</label>
-        <input id="detail-task-title" data-testid="detail-task-title" type="text" />
-
-        <div class="detail-grid">
-          <label for="detail-task-start">Start time
-            <input id="detail-task-start" data-testid="detail-task-start" type="time" min="08:00" max="18:50" step="300" />
-          </label>
-          <label for="detail-task-duration">Minutes
-            <input id="detail-task-duration" data-testid="detail-task-duration" type="number" min="10" max="480" step="5" />
-          </label>
-          <label for="detail-task-progress">Done minutes
-            <input id="detail-task-progress" data-testid="detail-task-progress" type="number" min="0" max="480" step="5" />
-          </label>
-        </div>
-
-        <div class="detail-grid">
-          <label for="detail-priority-score">Priority
-            <select id="detail-priority-score" data-testid="detail-priority-score">
-              <option value="LOW">LOW</option>
-              <option value="MEDIUM">MEDIUM</option>
-              <option value="HIGH">HIGH</option>
-              <option value="CRITICAL">CRITICAL</option>
-            </select>
-          </label>
-          <label for="detail-impact">Impact
-            <input id="detail-impact" data-testid="detail-impact" type="number" min="1" max="5" />
-          </label>
-          <label for="detail-urgency">Urgency
-            <input id="detail-urgency" data-testid="detail-urgency" type="number" min="1" max="5" />
-          </label>
-        </div>
-
-        <label for="detail-priority-reason">Priority reason</label>
-        <textarea id="detail-priority-reason" data-testid="detail-priority-reason" rows="3"></textarea>
-
-        <section class="detail-section">
-          <div class="section-heading compact">
-            <h3>Subtasks</h3>
-          </div>
-          <div id="detail-subtasks" class="detail-subtasks" data-testid="detail-subtasks"></div>
-        </section>
-
-        <section class="detail-section">
-          <div class="section-heading compact">
-            <h3>Help me get started</h3>
-          </div>
-          <p class="helper">Turn a task that feels too large or difficult to begin into practical steps.</p>
-          <label for="detail-breakdown-instructions">Optional focus</label>
-          <textarea
-            id="detail-breakdown-instructions"
-            data-testid="detail-breakdown-instructions"
-            rows="3"
-            placeholder="Optional: focus on implementation steps, testing, or a specific constraint..."
-          ></textarea>
-          <div class="detail-grid">
-            <label for="detail-breakdown-granularity">Granularity
-              <select id="detail-breakdown-granularity" data-testid="detail-breakdown-granularity">
-                <option value="small">Small</option>
-                <option value="medium" selected>Medium</option>
-                <option value="large">Large</option>
-              </select>
+          <div class="task-editor-core">
+            <label for="detail-task-title">Title
+              <input
+                id="detail-task-title"
+                data-testid="detail-task-title"
+                type="text"
+                maxlength="180"
+                placeholder="What needs doing?"
+                required
+              />
             </label>
-            <label for="detail-breakdown-apply-mode">Apply mode
-              <select id="detail-breakdown-apply-mode" data-testid="detail-breakdown-apply-mode">
-                <option value="append" selected>Append</option>
-                <option value="replace">Replace</option>
-              </select>
-            </label>
-          </div>
-          <button id="detail-breakdown-ai" class="ghost" data-testid="detail-breakdown-ai">Suggest steps with AI</button>
-        </section>
 
-        <div class="drawer-actions detail-actions">
-          <button id="detail-toggle-timer" class="primary" data-testid="detail-toggle-timer">Start</button>
-          <button id="detail-toggle-done" class="ghost" data-testid="detail-toggle-done">Done</button>
-          <button id="detail-split" class="ghost" data-testid="detail-split">Split</button>
-          <button id="detail-backlog" class="ghost" data-testid="detail-backlog">Backlog</button>
-          <button id="detail-export-agent" class="ghost" data-testid="detail-export-agent">Export agent prompt</button>
-          <button id="detail-delete" class="danger" data-testid="detail-delete">Delete</button>
-        </div>
+            <div class="detail-grid task-schedule-grid">
+              <label id="detail-task-start-field" for="detail-task-start">Start time
+                <input id="detail-task-start" data-testid="detail-task-start" type="time" min="08:00" max="18:50" step="300" />
+              </label>
+              <label for="detail-task-duration">Minutes
+                <input id="detail-task-duration" data-testid="detail-task-duration" type="number" min="10" max="480" step="5" required />
+              </label>
+            </div>
+          </div>
+
+          <section class="detail-section task-subtask-section" aria-labelledby="detail-subtasks-heading">
+            <div class="section-heading compact">
+              <div>
+                <h3 id="detail-subtasks-heading">Subtasks</h3>
+                <p class="helper">Break the work into small, checkable steps.</p>
+              </div>
+              <button id="detail-add-subtask" class="ghost compact-button" type="button" data-testid="detail-add-subtask">Add subtask</button>
+            </div>
+            <div id="detail-subtasks" class="detail-subtasks" data-testid="detail-subtasks"></div>
+          </section>
+
+          <details id="detail-advanced" class="detail-disclosure" data-testid="detail-advanced">
+            <summary>
+              <span>Priority &amp; progress</span>
+              <span id="detail-advanced-summary" class="disclosure-summary-value"></span>
+            </summary>
+            <div class="detail-disclosure-body">
+              <div class="detail-grid">
+                <label for="detail-task-progress">Done minutes
+                  <input id="detail-task-progress" data-testid="detail-task-progress" type="number" min="0" max="480" step="5" />
+                </label>
+                <label for="detail-priority-score">Priority
+                  <select id="detail-priority-score" data-testid="detail-priority-score">
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                  </select>
+                </label>
+                <label for="detail-impact">Impact
+                  <input id="detail-impact" data-testid="detail-impact" type="number" min="1" max="5" />
+                </label>
+                <label for="detail-urgency">Urgency
+                  <input id="detail-urgency" data-testid="detail-urgency" type="number" min="1" max="5" />
+                </label>
+              </div>
+
+              <label for="detail-priority-reason">Priority reason
+                <textarea id="detail-priority-reason" data-testid="detail-priority-reason" rows="3"></textarea>
+              </label>
+            </div>
+          </details>
+
+          <details id="detail-ai-section" class="detail-disclosure" data-testid="detail-ai-section">
+            <summary>
+              <span>Help me get started</span>
+              <span class="disclosure-summary-value">AI suggestions</span>
+            </summary>
+            <div class="detail-disclosure-body">
+              <p class="helper">Turn a task that feels too large or difficult to begin into practical steps.</p>
+              <label for="detail-breakdown-instructions">Optional focus
+                <textarea
+                  id="detail-breakdown-instructions"
+                  data-testid="detail-breakdown-instructions"
+                  rows="3"
+                  placeholder="Optional: focus on implementation steps, testing, or a specific constraint..."
+                ></textarea>
+              </label>
+              <div class="detail-grid">
+                <label for="detail-breakdown-granularity">Granularity
+                  <select id="detail-breakdown-granularity" data-testid="detail-breakdown-granularity">
+                    <option value="small">Small</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </label>
+                <label for="detail-breakdown-apply-mode">Apply mode
+                  <select id="detail-breakdown-apply-mode" data-testid="detail-breakdown-apply-mode">
+                    <option value="append" selected>Append</option>
+                    <option value="replace">Replace</option>
+                  </select>
+                </label>
+              </div>
+              <button id="detail-breakdown-ai" class="ghost" type="button" data-testid="detail-breakdown-ai">Suggest steps with AI</button>
+            </div>
+          </details>
+
+          <section id="detail-task-actions" class="detail-section task-action-section" data-testid="detail-task-actions">
+            <h3>Task actions</h3>
+            <div class="drawer-actions detail-actions">
+              <button id="detail-toggle-timer" class="primary" type="button" data-testid="detail-toggle-timer">Start</button>
+              <button id="detail-toggle-done" class="ghost" type="button" data-testid="detail-toggle-done">Done</button>
+              <button id="detail-split" class="ghost" type="button" data-testid="detail-split">Split</button>
+              <button id="detail-backlog" class="ghost" type="button" data-testid="detail-backlog">Move to backlog</button>
+              <button id="detail-export-agent" class="ghost" type="button" data-testid="detail-export-agent">Export agent prompt</button>
+              <button id="detail-delete" class="danger" type="button" data-testid="detail-delete">Delete</button>
+            </div>
+          </section>
+
+          <div class="task-editor-footer">
+            <button id="cancel-task-editor" class="ghost" type="button" data-testid="cancel-task-editor">Cancel</button>
+            <button id="save-task-editor" class="primary" type="submit" data-testid="save-task-editor">Create task</button>
+          </div>
+        </form>
       </div>
     </aside>
 
@@ -449,6 +494,7 @@
           <ul class="task-subtasks"></ul>
         </div>
         <div class="task-actions">
+          <button data-action="edit" class="ghost">Edit</button>
           <button data-action="pick" class="primary">Pick up</button>
         </div>
       </div>
