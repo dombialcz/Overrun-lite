@@ -9,6 +9,23 @@
   --accent-dark: #51355a;
   --primary-bg: #2a0c4e;
   --primary-ink: #ffffff;
+  --primary-hover-bg: #51355a;
+  --primary-hover-ink: #ffffff;
+  --ghost-hover-bg: #f2eaf5;
+  --ghost-hover-border: #6f4d78;
+  --ghost-hover-ink: #2a0c4e;
+  --danger-hover-bg: #f3d1ce;
+  --danger-hover-border: #9e2b25;
+  --danger-hover-ink: #9e2b25;
+  --primary-disabled-bg: #ddd4e2;
+  --primary-disabled-border: #c8bdce;
+  --primary-disabled-ink: #655a6c;
+  --ghost-disabled-bg: #f3f0f4;
+  --ghost-disabled-border: #ddd7e0;
+  --ghost-disabled-ink: #6f6674;
+  --danger-disabled-bg: #f4e7e5;
+  --danger-disabled-border: #decac7;
+  --danger-disabled-ink: #755b58;
   --panel: rgba(255, 255, 255, 0.92);
   --panel-solid: #ffffff;
   --surface: #ffffff;
@@ -103,6 +120,23 @@
   --accent-dark: #e0c0e6;
   --primary-bg: #f5f8de;
   --primary-ink: #2a0c4e;
+  --primary-hover-bg: #e6edc6;
+  --primary-hover-ink: #2a0c4e;
+  --ghost-hover-bg: #3b294a;
+  --ghost-hover-border: #c4a4cc;
+  --ghost-hover-ink: #fff8f0;
+  --danger-hover-bg: #6d2631;
+  --danger-hover-border: #ffaea6;
+  --danger-hover-ink: #ffd9d5;
+  --primary-disabled-bg: #565c3b;
+  --primary-disabled-border: #6b7250;
+  --primary-disabled-ink: #d4d9ba;
+  --ghost-disabled-bg: #302636;
+  --ghost-disabled-border: #4b4052;
+  --ghost-disabled-ink: #a89eae;
+  --danger-disabled-bg: #432b32;
+  --danger-disabled-border: #5a3841;
+  --danger-disabled-ink: #b89296;
   --panel: rgba(36, 20, 49, 0.95);
   --panel-solid: #241431;
   --surface: #30203e;
@@ -534,10 +568,23 @@ textarea {
   color: var(--ink);
 }
 
-.primary:hover:not(:disabled),
-.ghost:hover:not(:disabled),
-.danger:hover:not(:disabled) {
-  filter: brightness(0.96);
+@media (hover: hover) and (pointer: fine) {
+  .primary:hover:not(:disabled) {
+    background: var(--primary-hover-bg);
+    color: var(--primary-hover-ink);
+  }
+
+  .ghost:hover:not(:disabled) {
+    background: var(--ghost-hover-bg);
+    border-color: var(--ghost-hover-border);
+    color: var(--ghost-hover-ink);
+  }
+
+  .danger:hover:not(:disabled) {
+    background: var(--danger-hover-bg);
+    border-color: var(--danger-hover-border);
+    color: var(--danger-hover-ink);
+  }
 }
 
 button:focus-visible,
@@ -1328,9 +1375,24 @@ code {
 button:disabled {
   cursor: not-allowed;
   opacity: 1;
-  color: var(--muted);
-  background: var(--surface-soft);
-  border: 1px solid var(--stroke);
+}
+
+.primary:disabled {
+  color: var(--primary-disabled-ink);
+  background: var(--primary-disabled-bg);
+  border: 1px solid var(--primary-disabled-border);
+}
+
+.ghost:disabled {
+  color: var(--ghost-disabled-ink);
+  background: var(--ghost-disabled-bg);
+  border: 1px solid var(--ghost-disabled-border);
+}
+
+.danger:disabled {
+  color: var(--danger-disabled-ink);
+  background: var(--danger-disabled-bg);
+  border: 1px solid var(--danger-disabled-border);
 }
 
 @media (max-width: 720px) {

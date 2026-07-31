@@ -27,6 +27,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Clear button interaction states** — primary, secondary, and danger buttons now use explicit theme-aware hover colors and washed, variant-specific disabled treatments instead of relying on a barely visible brightness change.
 - **Task-first color hierarchy** — light mode returns to flat white and floral-white surfaces with orange tasks as the main color event, while dark mode restores its quieter panels and uses controlled bright-maroon tasks; the inbox now has a theme-specific surface instead of sharing one treatment.
 - **More expressive semantic palette** — amethyst carries primary actions, grape supports selection, orange emphasizes light-theme tasks and attention, pale green signals completion, and the brown-red family covers danger, conflicts, and controlled dark-theme task emphasis.
 - **Focused planner header** — sync/account utilities, theme, settings, daily totals, and the day timer now have distinct compact rows that reduce top-of-page clutter on narrow screens.

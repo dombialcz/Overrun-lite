@@ -1,4 +1,5 @@
 import { expect, test } from "../fixtures/ui.fixture";
+import type { Locator, Page } from "@playwright/test";
 
 type ThemeColors = Record<string, string>;
 
@@ -6,6 +7,12 @@ const CONTRAST_PAIRS = [
   ["ink", "bg"],
   ["muted", "panel-solid"],
   ["primary-ink", "primary-bg"],
+  ["primary-hover-ink", "primary-hover-bg"],
+  ["ghost-hover-ink", "ghost-hover-bg"],
+  ["danger-hover-ink", "danger-hover-bg"],
+  ["primary-disabled-ink", "primary-disabled-bg"],
+  ["ghost-disabled-ink", "ghost-disabled-bg"],
+  ["danger-disabled-ink", "danger-disabled-bg"],
   ["attention-ink", "attention-bg"],
   ["inbox-ink", "inbox-bg-edge"],
   ["inbox-muted", "inbox-bg-edge"],
@@ -16,6 +23,14 @@ const CONTRAST_PAIRS = [
   ["danger-ink", "danger-bg"],
   ["notice-ink", "notice-bg"],
   ["overlap-chip-ink", "overlap-chip-bg"],
+] as const;
+
+const EXTRA_THEME_COLORS = [
+  "ghost-hover-border",
+  "danger-hover-border",
+  "primary-disabled-border",
+  "ghost-disabled-border",
+  "danger-disabled-border",
 ] as const;
 
 test.beforeEach(async ({ ui }) => {
@@ -85,6 +100,83 @@ test("light and dark semantic text pairs meet WCAG AA contrast", async ({ ui }) 
   }
 });
 
+test("button variants have clear hover and washed disabled states", async ({ ui }) => {
+  for (const theme of ["light", "dark"] as const) {
+    await ui.resetState();
+    await ui.page.evaluate((nextTheme) => localStorage.setItem("overrun_lite_theme", nextTheme), theme);
+    await ui.page.reload();
+    const colors = await readThemeColors(ui.page);
+    const analyze = ui.page.getByTestId("analyze-dump");
+    const organize = ui.page.getByTestId("context-organize");
+
+    await expect(analyze).toBeDisabled();
+    await expectButtonAppearance(analyze, {
+      background: colors["primary-disabled-bg"],
+      border: colors["primary-disabled-border"],
+      color: colors["primary-disabled-ink"],
+      cursor: "not-allowed",
+    });
+    await analyze.hover();
+    await expectButtonAppearance(analyze, {
+      background: colors["primary-disabled-bg"],
+      border: colors["primary-disabled-border"],
+      color: colors["primary-disabled-ink"],
+      cursor: "not-allowed",
+    });
+
+    await expect(organize).toBeDisabled();
+    await organize.hover();
+    await expectButtonAppearance(organize, {
+      background: colors["ghost-disabled-bg"],
+      border: colors["ghost-disabled-border"],
+      color: colors["ghost-disabled-ink"],
+      cursor: "not-allowed",
+    });
+
+    await ui.settings.useLocalProvider({
+      baseUrl: "http://local-ai.test/v1",
+      model: "test-model",
+    });
+    await expect(analyze).toBeEnabled();
+    await expectButtonAppearance(analyze, {
+      background: colors["primary-bg"],
+      color: colors["primary-ink"],
+    });
+    await analyze.hover();
+    await expectButtonAppearance(analyze, {
+      background: colors["primary-hover-bg"],
+      color: colors["primary-hover-ink"],
+    });
+
+    await organize.hover();
+    await expectButtonAppearance(organize, {
+      background: colors["ghost-hover-bg"],
+      border: colors["ghost-hover-border"],
+      color: colors["ghost-hover-ink"],
+    });
+
+    await ui.page.getByRole("button", { name: "Settings" }).click();
+    const clearSettings = ui.page.getByTestId("clear-local-storage");
+    await clearSettings.hover();
+    await expectButtonAppearance(clearSettings, {
+      background: colors["danger-hover-bg"],
+      border: colors["danger-hover-border"],
+      color: colors["danger-hover-ink"],
+    });
+
+    await ui.page.getByTestId("clear-backlog").click();
+    const confirmClear = ui.page.getByTestId("confirm-clear-backlog-action");
+    await expect(confirmClear).toBeDisabled();
+    await confirmClear.hover();
+    await expectButtonAppearance(confirmClear, {
+      background: colors["danger-disabled-bg"],
+      border: colors["danger-disabled-border"],
+      color: colors["danger-disabled-ink"],
+      cursor: "not-allowed",
+    });
+  }
+});
+
 test("mobile header stays compact and keeps every utility on screen", async ({ ui }) => {
   await ui.page.setViewportSize({ width: 390, height: 844 });
   const metrics = await ui.page.evaluate(() => {
@@ -111,12 +203,34 @@ test("mobile header stays compact and keeps every utility on screen", async ({ u
   expect(metrics.utilities.every((item) => item.left >= 0 && item.right <= metrics.clientWidth)).toBe(true);
 });
 
-async function readThemeColors(page: import("@playwright/test").Page): Promise<ThemeColors> {
-  const names = Array.from(new Set(CONTRAST_PAIRS.flat()));
+async function readThemeColors(page: Page): Promise<ThemeColors> {
+  const names = Array.from(new Set([...CONTRAST_PAIRS.flat(), ...EXTRA_THEME_COLORS]));
   return page.evaluate((variableNames) => {
     const styles = getComputedStyle(document.documentElement);
     return Object.fromEntries(variableNames.map((name) => [name, styles.getPropertyValue(`--${name}`).trim()]));
   }, names);
+}
+
+async function expectButtonAppearance(
+  button: Locator,
+  expected: { background: string; border?: string; color: string; cursor?: string }
+): Promise<void> {
+  await expect(button).toHaveCSS("background-color", cssRgb(expected.background));
+  await expect(button).toHaveCSS("color", cssRgb(expected.color));
+  if (expected.border) {
+    await expect(button).toHaveCSS("border-color", cssRgb(expected.border));
+  }
+  if (expected.cursor) {
+    await expect(button).toHaveCSS("cursor", expected.cursor);
+  }
+}
+
+function cssRgb(color: string): string {
+  const channels = color.slice(1).match(/.{2}/g)?.map((channel) => Number.parseInt(channel, 16));
+  if (!channels || channels.length !== 3 || channels.some(Number.isNaN)) {
+    throw new Error(`Unsupported CSS color: ${color}`);
+  }
+  return `rgb(${channels.join(", ")})`;
 }
 
 function contrastRatio(foreground: string, background: string): number {
