@@ -2,16 +2,18 @@ import type { Page } from "@playwright/test";
 import { AiReviewPageObject } from "./AiReviewPageObject";
 import { BacklogPageObject } from "./BacklogPageObject";
 import { CalendarPageObject } from "./CalendarPageObject";
-import { FooterActionsPageObject } from "./FooterActionsPageObject";
+import { DataActionsPageObject } from "./DataActionsPageObject";
 import { InboxPageObject } from "./InboxPageObject";
 import { SettingsPageObject } from "./SettingsPageObject";
 import { TaskDetailsPageObject } from "./TaskDetailsPageObject";
+import { ThemePageObject } from "./ThemePageObject";
 
 const STORAGE_KEYS = [
   "overrun_lite_state",
   "overrun_lite_id_counter",
   "overrun_lite_ai_settings",
   "overrun_lite_review_draft",
+  "overrun_lite_theme",
 ];
 
 export class AppUi {
@@ -20,10 +22,11 @@ export class AppUi {
   #aiReview?: AiReviewPageObject;
   #backlog?: BacklogPageObject;
   #calendar?: CalendarPageObject;
-  #footerActions?: FooterActionsPageObject;
+  #dataActions?: DataActionsPageObject;
   #inbox?: InboxPageObject;
   #settings?: SettingsPageObject;
   #taskDetails?: TaskDetailsPageObject;
+  #theme?: ThemePageObject;
 
   constructor(readonly page: Page) {
     page.on("console", (message) => {
@@ -48,8 +51,8 @@ export class AppUi {
     return (this.#calendar ??= new CalendarPageObject(this.page));
   }
 
-  get footerActions(): FooterActionsPageObject {
-    return (this.#footerActions ??= new FooterActionsPageObject(this.page));
+  get dataActions(): DataActionsPageObject {
+    return (this.#dataActions ??= new DataActionsPageObject(this.page));
   }
 
   get inbox(): InboxPageObject {
@@ -62,6 +65,10 @@ export class AppUi {
 
   get taskDetails(): TaskDetailsPageObject {
     return (this.#taskDetails ??= new TaskDetailsPageObject(this.page));
+  }
+
+  get theme(): ThemePageObject {
+    return (this.#theme ??= new ThemePageObject(this.page));
   }
 
   async goto(): Promise<void> {

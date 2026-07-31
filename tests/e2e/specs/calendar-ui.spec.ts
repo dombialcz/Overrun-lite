@@ -108,9 +108,10 @@ test("task blocks can be moved to a specific hour", async ({ ui }) => {
   await ui.calendar.addTask();
 
   const before = await ui.calendar.blockMetrics(0);
+  expect(before.text).toContain("08:00");
   await ui.calendar.moveBlock(0, 100);
   const afterDrag = await ui.calendar.blockMetrics(0);
-  expect(afterDrag.top).toBeGreaterThan(before.top);
+  expect(afterDrag.text).toContain("09:00");
 
   await ui.calendar.openTask(0);
   await ui.taskDetails.setStartTime("10:00");

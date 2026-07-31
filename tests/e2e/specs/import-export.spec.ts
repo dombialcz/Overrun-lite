@@ -47,7 +47,7 @@ test("backlog export downloads versioned JSON with task progress", async ({ ui }
   });
   await ui.page.reload();
 
-  const download = await ui.footerActions.exportBacklog();
+  const download = await ui.dataActions.exportBacklog();
   expect(download.suggestedFilename()).toBe("overrun_backlog.json");
 
   const payload = JSON.parse(await readDownloadText(download));
@@ -97,7 +97,7 @@ test("backlog import accepts versioned exports incrementally and skips duplicate
     ],
   });
 
-  await ui.footerActions.importBacklog(filePath);
+  await ui.dataActions.importBacklog(filePath);
   await expect(ui.backlog.items()).toHaveCount(2);
   await expect(ui.backlog.root).toContainText("Imported backlog item");
   await expect(ui.page.getByTestId("ai-status")).toHaveText("1 backlog item imported. 1 duplicate skipped.");
@@ -144,7 +144,7 @@ test("day snapshot import preserves completed and partial progress in backlog", 
     ],
   });
 
-  await ui.footerActions.importBacklog(filePath);
+  await ui.dataActions.importBacklog(filePath);
   await expect(ui.backlog.items()).toHaveCount(2);
   await ui.backlog.doneToggle.click();
   await expect(ui.backlog.doneItems()).toHaveCount(1);
@@ -190,7 +190,7 @@ test("save day exports a full snapshot without mutating state", async ({ ui }) =
   await ui.page.reload();
 
   const before = await ui.page.evaluate(() => localStorage.getItem("overrun_lite_state"));
-  const download = await ui.footerActions.saveDay();
+  const download = await ui.dataActions.exportDaySnapshot();
   const after = await ui.page.evaluate(() => localStorage.getItem("overrun_lite_state"));
   expect(after).toBe(before);
   expect(download.suggestedFilename()).toBe("overrun_day.json");
@@ -226,12 +226,12 @@ test("clear backlog requires checkbox confirmation and preserves day and Done ta
   await ui.page.reload();
   await expect(ui.backlog.items()).toHaveCount(2);
 
-  await ui.footerActions.openClearBacklog();
-  await expect(ui.footerActions.clearBacklogDrawer).toHaveAttribute("aria-hidden", "false");
+  await ui.dataActions.openClearBacklog();
+  await expect(ui.dataActions.clearBacklogDrawer).toHaveAttribute("aria-hidden", "false");
   await expect(ui.page.getByTestId("confirm-clear-backlog-action")).toBeDisabled();
 
-  await ui.footerActions.confirmClearBacklog();
-  await expect(ui.footerActions.clearBacklogDrawer).toHaveAttribute("aria-hidden", "true");
+  await ui.dataActions.confirmClearBacklog();
+  await expect(ui.dataActions.clearBacklogDrawer).toHaveAttribute("aria-hidden", "true");
   await expect(ui.backlog.items()).toHaveCount(0);
   await ui.backlog.doneToggle.click();
   await expect(ui.backlog.doneItems()).toHaveCount(1);
@@ -281,7 +281,7 @@ test("day report downloads hour-by-hour plain text", async ({ ui }) => {
   });
   await ui.page.reload();
 
-  const download = await ui.footerActions.dayReport();
+  const download = await ui.dataActions.exportDayReport();
   expect(download.suggestedFilename()).toBe("overrun_day_report.txt");
   const report = await readDownloadText(download);
   expect(report).toContain("Totals");
