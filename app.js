@@ -2,6 +2,7 @@ const STORAGE_KEY = "overrun_lite_state";
 const ID_COUNTER_KEY = "overrun_lite_id_counter";
 const SETTINGS_KEY = "overrun_lite_ai_settings";
 const REVIEW_KEY = "overrun_lite_review_draft";
+const THEME_KEY = "overrun_lite_theme";
 const memoryStore = {};
 const DEFAULT_MINUTES = 60;
 const MIN_MINUTES = 10;
@@ -144,6 +145,7 @@ const els = {
   syncConflictPanel: document.getElementById("sync-conflict-panel"),
   syncStatus: document.getElementById("sync-status"),
   taskDetailsPanel: document.getElementById("task-details-panel"),
+  themeToggle: document.getElementById("theme-toggle"),
   toggleDay: document.getElementById("toggle-day"),
   totalTime: document.getElementById("total-time"),
   aiUsage: document.getElementById("ai-usage"),
@@ -219,6 +221,44 @@ function readJson(key, fallback) {
     console.warn(`Failed to load ${key}`, err);
     return fallback;
   }
+}
+
+function getStoredTheme() {
+  const theme = safeGet(THEME_KEY);
+  return theme === "light" || theme === "dark" ? theme : null;
+}
+
+function getSystemTheme() {
+  return typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function updateThemeToggle(theme) {
+  const nextTheme = theme === "dark" ? "light" : "dark";
+  els.themeToggle.textContent = `${nextTheme[0].toUpperCase()}${nextTheme.slice(1)} theme`;
+  els.themeToggle.setAttribute("aria-label", `Switch to ${nextTheme} theme`);
+}
+
+function applyTheme(theme) {
+  const normalizedTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = normalizedTheme;
+  updateThemeToggle(normalizedTheme);
+}
+
+function toggleTheme() {
+  const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  safeSet(THEME_KEY, nextTheme);
+  applyTheme(nextTheme);
+}
+
+function setupTheme() {
+  applyTheme(getStoredTheme() || getSystemTheme());
+  if (typeof window.matchMedia !== "function") return;
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+    if (!getStoredTheme()) applyTheme(event.matches ? "dark" : "light");
+  });
 }
 
 function loadState() {
@@ -366,6 +406,7 @@ function renderAccount(authState = {}) {
   els.accountEmailStatus.textContent = signedIn ? cloudUser.email || "" : "";
   els.openAccount.textContent = signedIn ? cloudUser.email || "Account" : "Sign in";
   els.openAccount.disabled = !cloudCapabilities.authEnabled;
+  els.openAccount.classList.toggle("hidden", !cloudCapabilities.authEnabled && !signedIn);
   if (authState.authError) {
     setAccountStatus(authState.authError, true);
     openDrawer(els.accountPanel);
@@ -2372,6 +2413,7 @@ function clearBacklogConfirmed() {
   state.backlog = state.backlog.filter((task) => task.completed);
   saveState();
   closeClearBacklogPanel();
+  closeDrawer(els.settingsPanel);
   render();
   setStatus(`${count} open backlog item${count === 1 ? "" : "s"} cleared.`);
 }
@@ -2463,6 +2505,7 @@ function setupEvents() {
     setStatus("");
   });
   els.brainDump.addEventListener("input", updateDumpCharCount);
+  els.themeToggle.addEventListener("click", toggleTheme);
   els.toggleDay.addEventListener("click", toggleDayTimer);
   els.openAccount.addEventListener("click", () => {
     setAccountStatus("");
@@ -2685,14 +2728,26 @@ function setupEvents() {
     closeDrawer(els.settingsPanel);
   });
 
-  els.saveDay.addEventListener("click", exportCompletedDay);
-  els.dayReport.addEventListener("click", exportDayReport);
-  els.exportBacklog.addEventListener("click", exportBacklog);
+  els.saveDay.addEventListener("click", () => {
+    exportCompletedDay();
+    closeDrawer(els.settingsPanel);
+  });
+  els.dayReport.addEventListener("click", () => {
+    exportDayReport();
+    closeDrawer(els.settingsPanel);
+  });
+  els.exportBacklog.addEventListener("click", () => {
+    exportBacklog();
+    closeDrawer(els.settingsPanel);
+  });
   els.importBacklog.addEventListener("click", () => {
     els.backlogFile.value = "";
     els.backlogFile.click();
   });
-  els.backlogFile.addEventListener("change", importBacklog);
+  els.backlogFile.addEventListener("change", (event) => {
+    importBacklog(event);
+    closeDrawer(els.settingsPanel);
+  });
   els.clearBacklog.addEventListener("click", openClearBacklogPanel);
   els.cancelClearBacklog.addEventListener("click", closeClearBacklogPanel);
   els.cancelClearBacklogSecondary.addEventListener("click", closeClearBacklogPanel);
@@ -2922,6 +2977,7 @@ function buildDayReport() {
 }
 
 async function boot() {
+  setupTheme();
   loadState();
   setupEvents();
   render();

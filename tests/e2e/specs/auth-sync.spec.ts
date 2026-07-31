@@ -33,6 +33,9 @@ test.beforeEach(async ({ ui }) => {
 test("invite-only sign in persists account data and sign out restores the guest workspace", async ({ ui }) => {
   const mock = await mockCloud(ui.page);
   await ui.goto();
+  await ui.page.evaluate(() => localStorage.setItem("overrun_lite_theme", "dark"));
+  await ui.page.reload();
+  await expect(ui.page.locator("html")).toHaveAttribute("data-theme", "dark");
 
   await expect(ui.page.getByTestId("open-account")).toBeEnabled();
   await ui.page.getByTestId("open-account").click();
@@ -42,6 +45,7 @@ test("invite-only sign in persists account data and sign out restores the guest 
 
   await expect(ui.page.getByTestId("open-account")).toHaveText(TEST_USER.email);
   await expect(ui.page.getByTestId("sync-status")).toHaveText("Synced");
+  expect(await ui.theme.saved()).toBe("dark");
   await expect(ui.page.getByTestId("ai-usage")).toContainText("0 / 10");
 
   await ui.calendar.addTask();
@@ -53,6 +57,8 @@ test("invite-only sign in persists account data and sign out restores the guest 
   await ui.page.getByTestId("sign-out").click();
   await expect(ui.page.getByTestId("sync-status")).toHaveText("Local only");
   await expect(ui.calendar.blocks()).toHaveCount(0);
+  await expect(ui.page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await ui.theme.saved()).toBe("dark");
   const accountCache = await ui.page.evaluate(
     (userId) => localStorage.getItem(`overrun_lite_state:${userId}`),
     TEST_USER.id

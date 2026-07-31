@@ -19,6 +19,19 @@ configuration and it keeps working when Supabase and OpenAI keys are absent.
 Use `vercel dev` (normally on port 3000) when testing accounts and Vercel
 functions locally.
 
+## Theme preference
+
+Overrun Lite follows the operating-system light or dark theme on a first visit.
+The always-visible theme button switches explicitly between the two and stores
+the choice in the browser-wide `overrun_lite_theme` localStorage value. Theme
+preference is not included in planner exports, cloud sync, or AI settings.
+The palette uses amethyst for primary actions and light-theme active timers,
+grape for selection and structure, orange for light-theme tasks and attention,
+and pale green for completion. Brown red remains the danger/conflict family and
+also gives ordinary dark-theme tasks their controlled maroon emphasis. Light
+mode uses flat white and floral-white surfaces without decorative gradients;
+dark mode keeps its quieter panel treatment.
+
 ## Invite-only accounts and sync
 
 The canonical Vercel deployment uses Supabase Auth and Postgres. Signed-in users
@@ -76,7 +89,8 @@ existing user UUID and planner ownership.
 ### AI allowance administration
 
 New accounts receive 10 hosted AI actions per `Europe/Warsaw` calendar day.
-Analyze, Context organize, Refine with answers, and Help me get started each cost one action.
+Analyze dump, Organize with current plan, Refine with answers, and Help me get
+started each cost one action.
 Edit `profiles.ai_daily_limit` in the Supabase dashboard to change a tester's
 allowance; setting it to `0` disables hosted AI for that user.
 
@@ -130,11 +144,11 @@ aliases such as `task`, `priority`, `timeEstimate`, `steps`, `items`, and
 
 ## Import and export
 
-Footer actions support local file workflows:
+The `Data & exports` section in Settings supports local file workflows:
 
-- `Save the day` exports a versioned day snapshot JSON with day tasks, backlog,
+- `Export day snapshot` downloads versioned JSON with day tasks, backlog,
   progress, subtasks, and summary totals.
-- `Day report` exports a plain text hour-by-hour report for timesheets and
+- `Export day report` downloads a plain text hour-by-hour report for timesheets and
   daily standup notes.
 - `Export backlog` exports a versioned backlog JSON.
 - `Import backlog` accepts versioned backlog exports, day snapshots, and legacy
@@ -168,7 +182,8 @@ fallback deterministically.
 
 All page interaction should start from `ui` in `tests/e2e/fixtures/ui.fixture.ts`.
 Sub page objects are loaded lazily through `ui.calendar`, `ui.taskDetails`,
-`ui.inbox`, `ui.backlog`, `ui.settings`, `ui.aiReview`, and `ui.footerActions`.
+`ui.inbox`, `ui.backlog`, `ui.settings`, `ui.aiReview`, `ui.dataActions`, and
+`ui.theme`.
 
 Manual local LLM evals require a running OpenAI-compatible local server and are
 advisory, not deterministic:

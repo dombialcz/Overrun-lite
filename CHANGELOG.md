@@ -7,6 +7,8 @@ All notable changes to Overrun Lite are documented here.
 ## [Unreleased]
 
 ### Added
+- **Light and dark themes** — the planner now follows the system theme on first visit, exposes an always-visible toggle, and stores an explicit browser-only preference separately from planner data.
+- **Theme and responsive regressions** — Playwright now covers system preference changes, saved theme persistence, contrast tokens, account/settings isolation, and compact mobile header layout.
 - **Password recovery** — signed-out users can request a Supabase reset email and securely choose a new password when the recovery link returns to Overrun.
 - **Done backlog** — completed day tasks now move immediately into a collapsed, newest-first Done archive and can be restored to the open backlog.
 - **Invite-only Supabase accounts** — manually generated, one-time activation links now lead to password setup and persistent multi-device sessions without public sign-up.
@@ -25,6 +27,12 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Clear button interaction states** — primary, secondary, and danger buttons now use explicit theme-aware hover colors and washed, variant-specific disabled treatments instead of relying on a barely visible brightness change.
+- **Task-first color hierarchy** — light mode returns to flat white and floral-white surfaces with orange tasks as the main color event, while dark mode restores its quieter panels and uses controlled bright-maroon tasks; the inbox now has a theme-specific surface instead of sharing one treatment.
+- **More expressive semantic palette** — amethyst carries primary actions, grape supports selection, orange emphasizes light-theme tasks and attention, pale green signals completion, and the brown-red family covers danger, conflicts, and controlled dark-theme task emphasis.
+- **Focused planner header** — sync/account utilities, theme, settings, daily totals, and the day timer now have distinct compact rows that reduce top-of-page clutter on narrow screens.
+- **Settings data hub** — day and backlog exports, imports, reports, and backlog clearing moved from the distant footer into a labeled Settings section; day export actions now use explicit names.
+- **Clearer AI capture flow** — AI usage now appears beside its controls, the inbox helper foregrounds review-before-apply, unavailable sign-in controls are hidden, and Context organize is labeled Organize with current plan.
 - **Streamlined AI brain dumps** — capture now favors immediately useful draft tasks, limits optional clarifications to two essential questions, keeps routine prerequisites out of task lists, and reserves detailed decomposition for the task-level “Help me get started” action.
 - **Completion flow** — the Done button, full progress, and timer completion now close and archive tasks immediately; backlog export preserves completion timestamps and clearing the backlog preserves Done history.
 - **Hosted AI quota reservation** — fixed the atomic daily-usage reservation conflict clause and added sanitized server diagnostics for quota RPC failures.
