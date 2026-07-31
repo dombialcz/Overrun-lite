@@ -13,7 +13,10 @@
   let saveTimer = null;
   let pendingState = null;
   let syncPaused = false;
+  let connectedUserId = null;
   let connectingUserId = null;
+  let connectionPromise = null;
+  let connectionVersion = 0;
   let usage = null;
   let conflict = null;
   let authLinkError = "";
@@ -44,19 +47,22 @@
     );
 
     client.auth.onAuthStateChange((event, nextSession) => {
+      const previousUserId = user && user.id ? user.id : null;
       session = nextSession;
       user = nextSession && nextSession.user ? nextSession.user : null;
+      const nextUserId = user && user.id ? user.id : null;
       emitAuth();
       if (event === "SIGNED_OUT") {
-        revision = 0;
+        resetAccountConnection();
         usage = null;
-        syncPaused = false;
-        conflict = null;
         callbacks.onUsage && callbacks.onUsage(null);
         callbacks.onGuest && callbacks.onGuest();
         emitSync("Local only");
-      } else if (user && event !== "TOKEN_REFRESHED" && !isPasswordSetup()) {
-        connectAccount(user).catch(() => emitSync("Offline"));
+      } else if (user && !isPasswordSetup()) {
+        if (previousUserId && previousUserId !== nextUserId) {
+          resetAccountConnection();
+        }
+        queueAccountConnection(user);
       }
     });
     global.addEventListener("online", () => {
@@ -175,14 +181,63 @@
     }
   }
 
-  async function connectAccount(nextUser) {
-    if (!nextUser || connectingUserId === nextUser.id) return;
+  function queueAccountConnection(nextUser) {
+    const expectedUserId = nextUser && nextUser.id;
+    if (!expectedUserId) return;
+    global.setTimeout(() => {
+      if (!user || user.id !== expectedUserId || isPasswordSetup()) return;
+      connectAccount(user).catch(() => emitSync("Offline"));
+    }, 0);
+  }
+
+  function resetAccountConnection() {
+    connectionVersion += 1;
+    connectedUserId = null;
+    connectingUserId = null;
+    connectionPromise = null;
+    revision = 0;
+    syncPaused = false;
+    conflict = null;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    pendingState = null;
+  }
+
+  function isCurrentConnection(userId, version) {
+    return Boolean(user && user.id === userId && connectionVersion === version);
+  }
+
+  function connectAccount(nextUser) {
+    if (!nextUser || !nextUser.id) return Promise.resolve(false);
+    if (connectedUserId === nextUser.id) return Promise.resolve(true);
+    if (connectingUserId === nextUser.id && connectionPromise) return connectionPromise;
+
+    const version = connectionVersion + 1;
+    connectionVersion = version;
     connectingUserId = nextUser.id;
+    const request = reconcileAccount(nextUser, version);
+    connectionPromise = request;
+    request.then(
+      () => finishAccountConnection(request, nextUser.id),
+      () => finishAccountConnection(request, nextUser.id)
+    );
+    return request;
+  }
+
+  function finishAccountConnection(request, userId) {
+    if (connectionPromise !== request || connectingUserId !== userId) return;
+    connectingUserId = null;
+    connectionPromise = null;
+  }
+
+  async function reconcileAccount(nextUser, version) {
     emitSync("Loading");
     const localGuest = cloneState(
       callbacks.getPlannerState ? callbacks.getPlannerState() : EMPTY_STATE
     );
     const cacheKey = `${ACCOUNT_CACHE_PREFIX}${nextUser.id}`;
+    const existingAccountCache = readJson(cacheKey);
+    const returningAccount = isPlannerState(existingAccountCache);
 
     try {
       const { data, error } = await client
@@ -191,6 +246,7 @@
         .eq("user_id", nextUser.id)
         .maybeSingle();
       if (error) throw error;
+      if (!isCurrentConnection(nextUser.id, version)) return false;
 
       const cloudState = data ? cloneState(data.state) : null;
       revision = data ? Number(data.revision) || 0 : 0;
@@ -198,7 +254,7 @@
       const hasCloud = hasPlannerData(cloudState);
       let choice = "cloud";
 
-      if (hasLocal && !sameState(localGuest, cloudState)) {
+      if (!returningAccount && hasLocal && !sameState(localGuest, cloudState)) {
         choice = callbacks.chooseInitialSync
           ? await callbacks.chooseInitialSync({
               localState: localGuest,
@@ -206,36 +262,39 @@
               hasCloud,
             })
           : "cloud";
-      } else if (hasLocal && !cloudState) {
-        choice = "local";
       }
+      if (!isCurrentConnection(nextUser.id, version)) return false;
 
       if (choice === "local") {
         const saved = await saveNow(localGuest, { allowConflictPrompt: false });
         if (!saved) throw new Error("Could not move local data into the account.");
+        if (!isCurrentConnection(nextUser.id, version)) return false;
         safeRemove("overrun_lite_state");
         activateAccount(nextUser.id, localGuest);
       } else {
-        if (hasLocal && !sameState(localGuest, cloudState)) {
+        if (!returningAccount && hasLocal && !sameState(localGuest, cloudState)) {
           safeRemove("overrun_lite_state");
         }
         activateAccount(nextUser.id, cloudState || EMPTY_STATE);
       }
+      connectedUserId = nextUser.id;
       safeSet(cacheKey, JSON.stringify(callbacks.getPlannerState()));
       safeSet(`${ACCOUNT_REVISION_PREFIX}${nextUser.id}`, String(revision));
       emitSync("Synced");
       await refreshUsage();
+      return true;
     } catch (err) {
-      const cached = readJson(cacheKey);
+      if (!isCurrentConnection(nextUser.id, version)) return false;
+      const cached = existingAccountCache || readJson(cacheKey);
       if (cached) {
         revision = Number(safeGet(`${ACCOUNT_REVISION_PREFIX}${nextUser.id}`)) || 0;
         activateAccount(nextUser.id, cached);
       } else {
         activateAccount(nextUser.id, EMPTY_STATE);
       }
+      connectedUserId = nextUser.id;
       emitSync("Offline");
-    } finally {
-      connectingUserId = null;
+      return false;
     }
   }
 
@@ -257,11 +316,13 @@
 
   async function saveNow(plannerState, options = {}) {
     if (!user || !client) return false;
+    const saveUserId = user.id;
     const localState = cloneState(plannerState);
     const { data, error } = await client.rpc("save_planner_state", {
       p_expected_revision: revision,
       p_state: localState,
     });
+    if (!user || user.id !== saveUserId) return false;
     if (error) {
       emitSync("Offline");
       throw error;
@@ -282,8 +343,8 @@
       return false;
     }
     revision = Number(row.revision) || revision;
-    safeSet(`${ACCOUNT_CACHE_PREFIX}${user.id}`, JSON.stringify(localState));
-    safeSet(`${ACCOUNT_REVISION_PREFIX}${user.id}`, String(revision));
+    safeSet(`${ACCOUNT_CACHE_PREFIX}${saveUserId}`, JSON.stringify(localState));
+    safeSet(`${ACCOUNT_REVISION_PREFIX}${saveUserId}`, String(revision));
     emitSync("Synced");
     return true;
   }
@@ -390,6 +451,15 @@
       value
       && ((Array.isArray(value.tasks) && value.tasks.length)
         || (Array.isArray(value.backlog) && value.backlog.length))
+    );
+  }
+
+  function isPlannerState(value) {
+    return Boolean(
+      value
+      && typeof value === "object"
+      && Array.isArray(value.tasks)
+      && Array.isArray(value.backlog)
     );
   }
 

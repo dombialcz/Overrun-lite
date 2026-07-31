@@ -364,6 +364,7 @@ function activateAccount(userId, plannerState) {
 }
 
 function activateGuest() {
+  cancelInitialSyncChoice();
   if (activeUserId) {
     safeRemove(`${STORAGE_KEY}:${activeUserId}`);
     safeRemove(`${REVIEW_KEY}:${activeUserId}`);
@@ -373,6 +374,13 @@ function activateGuest() {
   activeReviewKey = REVIEW_KEY;
   loadState();
   render();
+}
+
+function cancelInitialSyncChoice() {
+  const resolve = pendingInitialSyncChoice;
+  pendingInitialSyncChoice = null;
+  closeDrawer(els.initialSyncPanel);
+  if (resolve) resolve(null);
 }
 
 function chooseInitialSync({ hasCloud }) {

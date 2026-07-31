@@ -89,6 +89,107 @@ test("first login chooses cloud data without silently merging local data", async
   expect(await ui.page.evaluate(() => localStorage.getItem("overrun_lite_state"))).toBeNull();
 });
 
+test("same-user auth confirmations do not repeat first sync", async ({ ui }) => {
+  const mock = await mockCloud(ui.page, {
+    cloudState: {
+      tasks: [task("cloud-task", "Cloud task")],
+      backlog: [],
+    },
+    revision: 4,
+  });
+  await ui.goto();
+  await ui.calendar.addTask("Local task");
+  await signIn(ui.page);
+
+  await expect(ui.page.getByTestId("initial-sync-drawer")).toHaveAttribute("aria-hidden", "false");
+  await ui.page.getByTestId("initial-sync-cloud").click();
+  await expect(ui.page.getByTestId("sync-status")).toHaveText("Synced");
+  expect(mock.plannerReads).toBe(1);
+
+  await ui.page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await ui.page.waitForTimeout(250);
+
+  await expect(ui.page.getByTestId("initial-sync-drawer")).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  await expect(ui.calendar.blocks().first()).toContainText("Cloud task");
+  expect(mock.plannerReads).toBe(1);
+});
+
+test("a returning account cache skips guest reconciliation on reload", async ({ ui }) => {
+  const mock = await mockCloud(ui.page, {
+    cloudState: {
+      tasks: [task("cloud-task", "Cloud task")],
+      backlog: [],
+    },
+    revision: 4,
+  });
+  await ui.goto();
+  await signIn(ui.page);
+  await expect(ui.page.getByTestId("sync-status")).toHaveText("Synced");
+
+  await ui.page.evaluate((guestState) => {
+    localStorage.setItem("overrun_lite_state", JSON.stringify(guestState));
+  }, {
+    tasks: [task("stale-guest-task", "Stale guest task")],
+    backlog: [],
+  });
+  await ui.page.reload();
+
+  await expect(ui.page.getByTestId("sync-status")).toHaveText("Synced");
+  await expect(ui.page.getByTestId("initial-sync-drawer")).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  await expect(ui.calendar.blocks().first()).toContainText("Cloud task");
+  expect(mock.plannerReads).toBe(2);
+});
+
+test("signing out during first sync cancels the stale account connection", async ({ ui }) => {
+  await mockCloud(ui.page, {
+    cloudState: {
+      tasks: [task("cloud-task", "Cloud task")],
+      backlog: [],
+    },
+  });
+  await ui.goto();
+  await ui.calendar.addTask("Guest task");
+  await signIn(ui.page);
+  await expect(ui.page.getByTestId("initial-sync-drawer")).toHaveAttribute("aria-hidden", "false");
+
+  await ui.page.evaluate(async () => {
+    await (window as Window & {
+      OverrunCloud: { signOut(): Promise<void> };
+    }).OverrunCloud.signOut();
+  });
+
+  await expect(ui.page.getByTestId("initial-sync-drawer")).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.page.getByTestId("open-account")).toHaveText("Sign in");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  await expect(ui.calendar.blocks().first()).toContainText("Guest task");
+});
+
+test("a completed sign-out allows the next login to reconcile new guest data", async ({ ui }) => {
+  await mockCloud(ui.page, {
+    cloudState: {
+      tasks: [task("cloud-task", "Cloud task")],
+      backlog: [],
+    },
+  });
+  await ui.goto();
+  await signIn(ui.page);
+  await expect(ui.page.getByTestId("sync-status")).toHaveText("Synced");
+
+  await ui.page.getByTestId("open-account").click();
+  await ui.page.getByTestId("sign-out").click();
+  await expect(ui.page.getByTestId("sync-status")).toHaveText("Local only");
+  await ui.calendar.addTask("New guest task");
+  await signIn(ui.page);
+
+  await expect(ui.page.getByTestId("initial-sync-drawer")).toHaveAttribute("aria-hidden", "false");
+  await expect(ui.page.getByTestId("initial-sync-cloud")).toHaveText("Use account data");
+});
+
 test("revision conflicts pause saves and allow an explicit local overwrite", async ({ ui }) => {
   const mock = await mockCloud(ui.page, {
     cloudState: {
@@ -221,6 +322,7 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
   let cloudState = options.cloudState === undefined ? null : options.cloudState;
   let revision = options.revision || 0;
   let conflictPending = Boolean(options.conflictOnce);
+  let plannerReads = 0;
   const savedStates: PlannerState[] = [];
   const resetRequests: Array<{ email: string; redirectTo: string }> = [];
   const passwordUpdates: string[] = [];
@@ -282,6 +384,7 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
       return;
     }
     if (url.pathname === "/rest/v1/planner_states") {
+      plannerReads += 1;
       await json(route, cloudState ? [{ state: cloudState, revision, updated_at: new Date().toISOString() }] : []);
       return;
     }
@@ -313,7 +416,14 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
     await json(route, {});
   });
 
-  return { passwordUpdates, resetRequests, savedStates };
+  return {
+    get plannerReads() {
+      return plannerReads;
+    },
+    passwordUpdates,
+    resetRequests,
+    savedStates,
+  };
 }
 
 async function json(route: Route, body: unknown): Promise<void> {
