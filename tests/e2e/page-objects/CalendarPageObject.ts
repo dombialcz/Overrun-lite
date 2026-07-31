@@ -20,8 +20,14 @@ export class CalendarPageObject {
     return this.blocks().nth(index);
   }
 
-  async addTask(): Promise<void> {
+  async openNewTask(): Promise<void> {
     await this.addTaskButton.click();
+  }
+
+  async addTask(title = "New task"): Promise<void> {
+    await this.openNewTask();
+    await this.page.getByTestId("detail-task-title").fill(title);
+    await this.page.getByTestId("save-task-editor").click();
   }
 
   async openTask(index: number): Promise<void> {

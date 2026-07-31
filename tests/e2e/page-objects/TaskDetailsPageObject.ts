@@ -9,14 +9,18 @@ export class TaskDetailsPageObject {
 
   async setDuration(minutes: number): Promise<void> {
     await this.page.getByTestId("detail-task-duration").fill(String(minutes));
+    await this.save();
   }
 
   async setStartTime(time: string): Promise<void> {
     await this.page.getByTestId("detail-task-start").fill(time);
+    await this.save();
   }
 
   async setProgress(minutes: number): Promise<void> {
+    await this.page.getByTestId("detail-advanced").locator("summary").click();
     await this.page.getByTestId("detail-task-progress").fill(String(minutes));
+    await this.save();
   }
 
   async markDone(): Promise<void> {
@@ -28,6 +32,7 @@ export class TaskDetailsPageObject {
     granularity?: "small" | "medium" | "large";
     applyMode?: "append" | "replace";
   } = {}): Promise<void> {
+    await this.page.getByTestId("detail-ai-section").locator("summary").click();
     if (options.instructions !== undefined) {
       await this.page.getByTestId("detail-breakdown-instructions").fill(options.instructions);
     }
@@ -54,6 +59,21 @@ export class TaskDetailsPageObject {
 
   subtasks(): Locator {
     return this.page.getByTestId("detail-subtasks").locator(".detail-subtask-row");
+  }
+
+  async addSubtask(title: string, minutes = 25): Promise<void> {
+    await this.page.getByTestId("detail-add-subtask").click();
+    const row = this.subtasks().last();
+    await row.getByTestId("detail-subtask-title").fill(title);
+    await row.getByTestId("detail-subtask-minutes").fill(String(minutes));
+  }
+
+  async save(): Promise<void> {
+    await this.page.getByTestId("save-task-editor").click();
+  }
+
+  async cancel(): Promise<void> {
+    await this.page.getByTestId("cancel-task-editor").click();
   }
 
   async splitInto(count: number): Promise<void> {
