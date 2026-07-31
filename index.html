@@ -80,6 +80,13 @@
           <button id="sort-backlog" class="ghost" data-testid="sort-backlog">Sort</button>
         </div>
         <div id="backlog-list" class="task-list" data-testid="backlog-list"></div>
+        <details id="done-backlog" class="done-backlog" data-testid="done-backlog">
+          <summary data-testid="done-backlog-toggle">
+            <span>Done</span>
+            <span id="done-backlog-count" class="done-count">0</span>
+          </summary>
+          <div id="done-backlog-list" class="task-list" data-testid="done-backlog-list"></div>
+        </details>
       </section>
 
       <section class="calendar" data-testid="calendar">
@@ -265,13 +272,13 @@
           </div>
           <button id="cancel-clear-backlog" class="ghost" data-testid="cancel-clear-backlog">Cancel</button>
         </div>
-        <p class="helper">This permanently removes every item currently in the backlog. Day tasks are not changed.</p>
+        <p class="helper">This permanently removes every open item currently in the backlog. Done items and day tasks are not changed.</p>
         <label class="confirm-row" for="confirm-clear-backlog">
           <input id="confirm-clear-backlog" data-testid="confirm-clear-backlog" type="checkbox" />
           <span>I accept this will be lost forever</span>
         </label>
         <div class="drawer-actions">
-          <button id="confirm-clear-backlog-action" class="danger" data-testid="confirm-clear-backlog-action" disabled>Clear backlog</button>
+          <button id="confirm-clear-backlog-action" class="danger" data-testid="confirm-clear-backlog-action" disabled>Clear open backlog</button>
           <button id="cancel-clear-backlog-secondary" class="ghost" data-testid="cancel-clear-backlog-secondary">Keep backlog</button>
         </div>
       </div>

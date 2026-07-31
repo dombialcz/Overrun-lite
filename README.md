@@ -135,7 +135,11 @@ Footer actions support local file workflows:
 - `Export backlog` exports a versioned backlog JSON.
 - `Import backlog` accepts versioned backlog exports, day snapshots, and legacy
   raw task arrays. Imports are incremental and skip duplicates.
-- `Clear backlog` removes backlog items only after explicit confirmation.
+- Completed day tasks move immediately into the collapsed `Done` section below
+  the open backlog. Done items are newest-first and can be restored to the open
+  backlog with their progress reset.
+- `Export backlog` includes open and Done items. `Clear backlog` removes open
+  backlog items only after explicit confirmation and preserves Done history.
 
 ## Tests
 

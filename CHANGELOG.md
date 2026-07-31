@@ -7,6 +7,7 @@ All notable changes to Overrun Lite are documented here.
 ## [Unreleased]
 
 ### Added
+- **Done backlog** — completed day tasks now move immediately into a collapsed, newest-first Done archive and can be restored to the open backlog.
 - **Invite-only Supabase accounts** — manually generated, one-time activation links now lead to password setup and persistent multi-device sessions without public sign-up.
 - **Conflict-safe cloud sync** — authenticated planner data syncs through revision-checked Supabase state with explicit first-login and concurrent-edit choices.
 - **Per-user hosted AI allowances** — Vercel AI requests require a valid Supabase session and atomically enforce a dashboard-editable 10-action Warsaw-day limit.
@@ -23,6 +24,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Completion flow** — the Done button, full progress, and timer completion now close and archive tasks immediately; backlog export preserves completion timestamps and clearing the backlog preserves Done history.
 - **Hosted AI quota reservation** — fixed the atomic daily-usage reservation conflict clause and added sanitized server diagnostics for quota RPC failures.
 - **Invite activation callback** — invitation tokens are now consumed explicitly, removed from the address bar immediately, and covered by a token-shaped browser regression test before the password form opens.
 - **Secure AI proxy** — `/api/plan` no longer accepts anonymous requests or wildcard origins, keeps provider keys server-side, and returns stable authentication, quota, and availability errors.

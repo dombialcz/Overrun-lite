@@ -10,4 +10,16 @@ export class BacklogPageObject {
   items(): Locator {
     return this.page.getByTestId("backlog-item");
   }
+
+  get doneSection(): Locator {
+    return this.page.getByTestId("done-backlog");
+  }
+
+  get doneToggle(): Locator {
+    return this.page.getByTestId("done-backlog-toggle");
+  }
+
+  doneItems(): Locator {
+    return this.page.getByTestId("done-backlog-item");
+  }
 }

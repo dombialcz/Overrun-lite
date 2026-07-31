@@ -15,6 +15,14 @@ export class TaskDetailsPageObject {
     await this.page.getByTestId("detail-task-start").fill(time);
   }
 
+  async setProgress(minutes: number): Promise<void> {
+    await this.page.getByTestId("detail-task-progress").fill(String(minutes));
+  }
+
+  async markDone(): Promise<void> {
+    await this.page.getByTestId("detail-toggle-done").click();
+  }
+
   async requestBreakdown(options: {
     instructions?: string;
     granularity?: "small" | "medium" | "large";

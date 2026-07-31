@@ -145,7 +145,10 @@ test("day snapshot import preserves completed and partial progress in backlog", 
   });
 
   await ui.footerActions.importBacklog(filePath);
-  await expect(ui.backlog.items()).toHaveCount(3);
+  await expect(ui.backlog.items()).toHaveCount(2);
+  await ui.backlog.doneToggle.click();
+  await expect(ui.backlog.doneItems()).toHaveCount(1);
+  await expect(ui.backlog.doneItems()).toContainText("Finished client report");
 
   const stored = await ui.page.evaluate(() =>
     JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
@@ -199,7 +202,7 @@ test("save day exports a full snapshot without mutating state", async ({ ui }) =
   expect(payload.summary).toMatchObject({ plannedMinutes: 40, doneMinutes: 20, taskCount: 1 });
 });
 
-test("clear backlog requires checkbox confirmation and preserves day tasks", async ({ ui }) => {
+test("clear backlog requires checkbox confirmation and preserves day and Done tasks", async ({ ui }) => {
   await ui.page.evaluate(() => {
     localStorage.setItem("overrun_lite_state", JSON.stringify({
       tasks: [
@@ -208,6 +211,15 @@ test("clear backlog requires checkbox confirmation and preserves day tasks", asy
       backlog: [
         { id: "backlog-a", name: "Remove A", minutes: 20, subtasks: [] },
         { id: "backlog-b", name: "Remove B", minutes: 20, subtasks: [] },
+        {
+          id: "done-backlog",
+          name: "Keep completed history",
+          minutes: 20,
+          elapsedMinutes: 20,
+          completed: true,
+          completedAt: "2026-07-25T12:00:00.000Z",
+          subtasks: [],
+        },
       ],
     }));
   });
@@ -221,8 +233,11 @@ test("clear backlog requires checkbox confirmation and preserves day tasks", asy
   await ui.footerActions.confirmClearBacklog();
   await expect(ui.footerActions.clearBacklogDrawer).toHaveAttribute("aria-hidden", "true");
   await expect(ui.backlog.items()).toHaveCount(0);
+  await ui.backlog.doneToggle.click();
+  await expect(ui.backlog.doneItems()).toHaveCount(1);
+  await expect(ui.backlog.doneItems()).toContainText("Keep completed history");
   await expect(ui.calendar.blocks()).toHaveCount(1);
-  await expect(ui.page.getByTestId("ai-status")).toHaveText("2 backlog items cleared.");
+  await expect(ui.page.getByTestId("ai-status")).toHaveText("2 open backlog items cleared.");
 });
 
 test("day report downloads hour-by-hour plain text", async ({ ui }) => {
