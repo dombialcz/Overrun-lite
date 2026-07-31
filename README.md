@@ -48,8 +48,11 @@ needed. AI-proposed subtasks still use the separate review-before-apply flow.
 
 The canonical Vercel deployment uses Supabase Auth and Postgres. Signed-in users
 receive a separate local cache and one revision-checked cloud planner document.
-Guest data is never silently merged into an account: first login asks which
-complete version to keep. Concurrent device writes pause with an explicit
+Guest data is never silently merged into an account: the first connection on a
+device asks which complete version to keep when guest and account data differ.
+After that choice, Supabase is canonical and the account cache is used only for
+offline recovery; session refreshes and window focus changes do not repeat the
+choice. Genuine concurrent device writes still pause with an explicit
 reload-or-overwrite choice.
 
 ### Supabase setup

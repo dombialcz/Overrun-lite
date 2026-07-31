@@ -30,6 +30,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Stable account reconciliation** — first-sync choices now run once when a browser adopts an account; repeated Supabase session confirmations and window focus changes keep using the connected account without reopening the local-versus-cloud prompt.
 - **Focused task drawer** — task edits now use Save or Cancel, keep subtasks prominent, fold priority/progress and AI assistance by default, and retain accessible controls on narrow screens.
 - **Clear button interaction states** — primary, secondary, and danger buttons now use explicit theme-aware hover colors and washed, variant-specific disabled treatments instead of relying on a barely visible brightness change.
 - **Task-first color hierarchy** — light mode returns to flat white and floral-white surfaces with orange tasks as the main color event, while dark mode restores its quieter panels and uses controlled bright-maroon tasks; the inbox now has a theme-specific surface instead of sharing one treatment.
