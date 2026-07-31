@@ -49,6 +49,7 @@ const els = {
   accountPanel: document.getElementById("account-panel"),
   accountPassword: document.getElementById("account-password"),
   accountStatus: document.getElementById("account-status"),
+  acceptInvite: document.getElementById("accept-invite"),
   activateAccount: document.getElementById("activate-account"),
   activationForm: document.getElementById("activation-form"),
   activationPassword: document.getElementById("activation-password"),
@@ -121,11 +122,13 @@ const els = {
   doneTime: document.getElementById("done-time"),
   exportBacklog: document.getElementById("export-backlog"),
   forgotPassword: document.getElementById("forgot-password"),
+  authLinkFailure: document.getElementById("auth-link-failure"),
   importBacklog: document.getElementById("import-backlog"),
   initialSyncCloud: document.getElementById("initial-sync-cloud"),
   initialSyncCopy: document.getElementById("initial-sync-copy"),
   initialSyncLocal: document.getElementById("initial-sync-local"),
   initialSyncPanel: document.getElementById("initial-sync-panel"),
+  inviteConfirmation: document.getElementById("invite-confirmation"),
   localApiKey: document.getElementById("local-api-key"),
   localBaseUrl: document.getElementById("local-base-url"),
   localModel: document.getElementById("local-model"),
@@ -137,6 +140,7 @@ const els = {
   recoveryPassword: document.getElementById("recovery-password"),
   recoveryPasswordConfirm: document.getElementById("recovery-password-confirm"),
   resetPassword: document.getElementById("reset-password"),
+  retryAuthLink: document.getElementById("retry-auth-link"),
   reviewHeading: document.getElementById("review-heading"),
   reviewPanel: document.getElementById("review-panel"),
   reviewQuestions: document.getElementById("review-questions"),
@@ -406,28 +410,59 @@ function renderAccount(authState = {}) {
   cloudUser = authState.user || null;
   const activationRequired = Boolean(authState.activationRequired);
   const recoveryRequired = Boolean(authState.recoveryRequired);
+  const inviteConfirmationRequired = Boolean(authState.inviteConfirmationRequired);
+  const invitePending = Boolean(authState.invitePending);
+  const activationPending = Boolean(authState.activationPending);
+  const recoveryPending = Boolean(authState.recoveryPending);
+  const authRetryAvailable = Boolean(authState.authRetryAvailable);
+  const authLinkInFlight = Boolean(authState.authLinkInFlight);
   const passwordSetupRequired = activationRequired || recoveryRequired;
+  const authFlowPending = invitePending || activationPending || recoveryPending;
+  const authLinkFailure = authFlowPending
+    && !inviteConfirmationRequired
+    && !passwordSetupRequired;
   const signedIn = Boolean(cloudUser);
-  els.signInForm.classList.toggle("hidden", signedIn || passwordSetupRequired);
+  els.signInForm.classList.toggle("hidden", signedIn || passwordSetupRequired || authFlowPending);
+  els.inviteConfirmation.classList.toggle("hidden", !inviteConfirmationRequired);
   els.activationForm.classList.toggle("hidden", !activationRequired);
   els.recoveryForm.classList.toggle("hidden", !recoveryRequired);
-  els.signedInActions.classList.toggle("hidden", !signedIn || passwordSetupRequired);
-  els.accountHeading.textContent = activationRequired
-    ? "Activate account"
-    : recoveryRequired
-      ? "Reset password"
-    : signedIn
-      ? "Your account"
-      : "Sign in";
-  els.accountCopy.textContent = activationRequired
-    ? "Create a password to finish activating this invite-only account."
-    : recoveryRequired
-      ? "Choose a new password for your Overrun account."
-    : signedIn
-      ? "Your planner is connected to your account and can sync across devices."
-      : cloudCapabilities.authEnabled
-        ? "Accounts are invite-only during the beta. You can keep using this browser locally without signing in."
-        : "Cloud accounts are not configured on this deployment. Your planner remains local to this browser.";
+  els.authLinkFailure.classList.toggle("hidden", !authLinkFailure);
+  els.retryAuthLink.classList.toggle("hidden", !authRetryAvailable);
+  els.retryAuthLink.disabled = authLinkInFlight;
+  els.acceptInvite.disabled = authLinkInFlight;
+  els.signedInActions.classList.toggle("hidden", !signedIn || passwordSetupRequired || authFlowPending);
+  els.accountHeading.textContent = inviteConfirmationRequired
+    ? "Accept invitation"
+    : invitePending
+      ? "Invitation problem"
+      : activationRequired
+        ? "Activate account"
+        : activationPending
+          ? (authLinkInFlight ? "Verifying invitation" : "Invitation problem")
+          : recoveryRequired
+            ? "Reset password"
+            : recoveryPending
+              ? (authLinkInFlight ? "Verifying password reset" : "Password reset problem")
+              : signedIn
+                ? "Your account"
+                : "Sign in";
+  els.accountCopy.textContent = inviteConfirmationRequired
+    ? "Confirm that you want to accept this invite. The one-time invitation is used only after you continue."
+    : invitePending
+      ? "This invitation cannot be opened. Ask the person who invited you for a new link."
+      : activationRequired
+        ? "Create a password to finish activating this invite-only account."
+        : activationPending
+          ? "Overrun could not finish verifying this invitation."
+          : recoveryRequired
+            ? "Choose a new password for your Overrun account."
+            : recoveryPending
+              ? "Overrun could not finish verifying this password reset link."
+              : signedIn
+                ? "Your planner is connected to your account and can sync across devices."
+                : cloudCapabilities.authEnabled
+                  ? "Accounts are invite-only during the beta. You can keep using this browser locally without signing in."
+                  : "Cloud accounts are not configured on this deployment. Your planner remains local to this browser.";
   els.accountEmailStatus.textContent = signedIn ? cloudUser.email || "" : "";
   els.openAccount.textContent = signedIn ? cloudUser.email || "Account" : "Sign in";
   els.openAccount.disabled = !cloudCapabilities.authEnabled;
@@ -435,8 +470,10 @@ function renderAccount(authState = {}) {
   if (authState.authError) {
     setAccountStatus(authState.authError, true);
     openDrawer(els.accountPanel);
+  } else if (authFlowPending || passwordSetupRequired) {
+    setAccountStatus(authLinkInFlight ? "Verifying link..." : "");
   }
-  if (passwordSetupRequired) openDrawer(els.accountPanel);
+  if (authFlowPending || passwordSetupRequired) openDrawer(els.accountPanel);
   updateAIAvailability();
 }
 
@@ -2705,6 +2742,27 @@ function setupEvents() {
     openDrawer(els.accountPanel);
   });
   els.closeAccount.addEventListener("click", () => closeDrawer(els.accountPanel));
+  els.acceptInvite.addEventListener("click", () => {
+    els.acceptInvite.disabled = true;
+    setAccountStatus("Opening invitation...");
+    try {
+      cloud.acceptInvite();
+    } catch (err) {
+      els.acceptInvite.disabled = false;
+      setAccountStatus(err.message || "Could not open the invitation.", true);
+    }
+  });
+  els.retryAuthLink.addEventListener("click", async () => {
+    els.retryAuthLink.disabled = true;
+    setAccountStatus("Verifying link...");
+    try {
+      await cloud.retryAuthLink();
+    } catch (err) {
+      setAccountStatus(err.message || "Could not verify the link.", true);
+    } finally {
+      els.retryAuthLink.disabled = false;
+    }
+  });
   els.openSettings.addEventListener("click", () => openDrawer(els.settingsPanel));
   els.closeSettings.addEventListener("click", () => closeDrawer(els.settingsPanel));
   els.closeAgentExport.addEventListener("click", () => closeDrawer(els.agentExportPanel));
@@ -2746,7 +2804,7 @@ function setupEvents() {
       els.activationPassword.value = "";
       els.activationPasswordConfirm.value = "";
       setAccountStatus("Account activated.");
-      renderAccount({ user: cloudUser, activationRequired: false });
+      renderAccount(cloud.getSnapshot());
       closeDrawer(els.accountPanel);
     } catch (err) {
       setAccountStatus(err.message || "Could not activate the account.", true);
@@ -2764,7 +2822,7 @@ function setupEvents() {
       els.recoveryPassword.value = "";
       els.recoveryPasswordConfirm.value = "";
       setAccountStatus("Password reset complete.");
-      renderAccount({ user: cloudUser, recoveryRequired: false });
+      renderAccount(cloud.getSnapshot());
       closeDrawer(els.accountPanel);
     } catch (err) {
       setAccountStatus(err.message || "Could not reset the password.", true);
@@ -3149,10 +3207,7 @@ async function boot() {
     onGuest: activateGuest,
     onCapabilities(capabilities) {
       cloudCapabilities = capabilities;
-      renderAccount({
-        user: cloudUser,
-        activationRequired: false,
-      });
+      renderAccount(cloud.getSnapshot());
     },
     onAuth: renderAccount,
     onConflict: showSyncConflict,

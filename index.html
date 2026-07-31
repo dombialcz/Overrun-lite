@@ -152,6 +152,11 @@
         <p id="account-copy" class="helper">
           Accounts are invite-only during the beta. You can keep using this browser locally without signing in.
         </p>
+        <div id="invite-confirmation" class="hidden" data-testid="invite-confirmation">
+          <div class="drawer-actions">
+            <button id="accept-invite" class="primary" data-testid="accept-invite" type="button">Accept invitation</button>
+          </div>
+        </div>
         <form id="sign-in-form" data-testid="sign-in-form">
           <label for="account-email">Email</label>
           <input id="account-email" data-testid="account-email" type="email" autocomplete="email" required />
@@ -182,6 +187,12 @@
             <button id="reset-password" class="primary" data-testid="reset-password" type="submit">Set new password</button>
           </div>
         </form>
+        <div id="auth-link-failure" class="hidden" data-testid="auth-link-failure">
+          <p class="helper">Use the instructions above to continue.</p>
+          <div class="drawer-actions">
+            <button id="retry-auth-link" class="primary hidden" data-testid="retry-auth-link" type="button">Try again</button>
+          </div>
+        </div>
         <div id="signed-in-actions" class="hidden" data-testid="signed-in-actions">
           <p id="account-email-status" class="account-email"></p>
           <div class="drawer-actions">
@@ -510,6 +521,7 @@
       integrity="sha384-M65KxMm/JqBppck6onbmAgPVMBHrmPCf1L17Q+71EcvI9/VVI8j5cqoxQf6lj6h2"
     ></script>
     <script src="aiContract.js"></script>
+    <script src="authLink.js"></script>
     <script src="cloud.js"></script>
     <script src="app.js"></script>
   </body>

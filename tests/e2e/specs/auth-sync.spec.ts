@@ -8,6 +8,7 @@ type MockCloudOptions = {
   used?: number;
   limit?: number;
   conflictOnce?: boolean;
+  authLinkFailures?: Array<{ status: number; body: Record<string, unknown> }>;
 };
 
 const EMPTY_STATE: PlannerState = { tasks: [], backlog: [] };
@@ -250,6 +251,85 @@ test("activation requires a strong matching password and clears the one-time URL
   expect(new URL(ui.page.url()).searchParams.has("activation")).toBe(false);
 });
 
+test("invite wrappers wait for an explicit confirmation before verification", async ({ ui }) => {
+  const mock = await mockCloud(ui.page);
+  const action = inviteActionUrl();
+  const wrapper = `/?invite=1#confirmation_url=${encodeURIComponent(action)}`;
+
+  await ui.page.goto(wrapper);
+
+  await expect(ui.page.getByTestId("invite-confirmation")).toBeVisible();
+  await expect(ui.page).toHaveURL(/\/\?invite=1$/);
+  expect(mock.verifyRequests).toBe(0);
+
+  await ui.page.getByTestId("accept-invite").click();
+
+  await expect(ui.page.getByTestId("activation-form")).toBeVisible();
+  await expect(ui.page).toHaveURL(/\/\?activation=1$/);
+  expect(mock.verifyRequests).toBe(1);
+});
+
+test("transient activation failures preserve credentials and retry successfully", async ({ ui }) => {
+  const mock = await mockCloud(ui.page, {
+    authLinkFailures: [{ status: 503, body: { message: "temporary outage" } }],
+  });
+  await ui.page.goto(
+    `/?activation=1#access_token=${inviteAccessToken()}&refresh_token=test-refresh-token&type=invite`
+  );
+
+  await expect(ui.page.getByTestId("retry-auth-link")).toBeVisible();
+  expect(ui.page.url()).toContain("access_token=");
+  expect(mock.authLinkRequests).toBe(1);
+
+  await ui.page.getByTestId("retry-auth-link").click();
+
+  await expect(ui.page.getByTestId("activation-form")).toBeVisible();
+  await expect(ui.page).toHaveURL(/\/\?activation=1$/);
+  expect(mock.authLinkRequests).toBe(2);
+});
+
+test("terminal activation failures clear credentials and request a fresh invitation", async ({ ui }) => {
+  await mockCloud(ui.page, {
+    authLinkFailures: [{
+      status: 403,
+      body: { code: "refresh_token_not_found", message: "Refresh Token Already Used" },
+    }],
+  });
+  await ui.page.goto(
+    `/?activation=1#access_token=${inviteAccessToken()}&refresh_token=used-token&type=invite`
+  );
+
+  await expect(ui.page.getByTestId("auth-link-failure")).toBeVisible();
+  await expect(ui.page.getByTestId("sign-in-form")).toBeHidden();
+  await expect(ui.page.getByTestId("retry-auth-link")).toBeHidden();
+  await expect(ui.page.getByTestId("account-status")).toHaveText(
+    "This invitation is expired or has already been used. Ask the person who invited you for a new link."
+  );
+  expect(ui.page.url()).not.toContain("access_token=");
+});
+
+test("activation mode without a callback shows a dedicated failure", async ({ ui }) => {
+  await mockCloud(ui.page);
+  await ui.page.goto("/?activation=1");
+
+  await expect(ui.page.getByTestId("auth-link-failure")).toBeVisible();
+  await expect(ui.page.getByTestId("sign-in-form")).toBeHidden();
+  await expect(ui.page.getByTestId("account-status")).toContainText("Ask the person who invited you");
+});
+
+test("malformed invite wrappers neither navigate nor expose their nested URL", async ({ ui }) => {
+  const mock = await mockCloud(ui.page);
+  const foreign = "https://attacker.example/auth/v1/verify?token=secret&type=invite";
+  await ui.page.goto(`/?invite=1#confirmation_url=${encodeURIComponent(foreign)}`);
+
+  await expect(ui.page).toHaveURL(/\/\?invite=1$/);
+  await expect(ui.page.getByTestId("invite-confirmation")).toBeHidden();
+  await expect(ui.page.getByTestId("auth-link-failure")).toBeVisible();
+  await expect(ui.page.getByTestId("sign-in-form")).toBeHidden();
+  await expect(ui.page.locator("body")).not.toContainText(foreign);
+  expect(mock.verifyRequests).toBe(0);
+});
+
 test("forgot password requests a recovery email without revealing account existence", async ({ ui }) => {
   const mock = await mockCloud(ui.page);
   await ui.goto();
@@ -292,13 +372,30 @@ test("recovery links open password reset and preserve the existing account", asy
   expect(new URL(ui.page.url()).searchParams.has("recovery")).toBe(false);
 });
 
+test("recovery callbacks can retry transient failures", async ({ ui }) => {
+  const mock = await mockCloud(ui.page, {
+    authLinkFailures: [{ status: 503, body: { message: "temporary outage" } }],
+  });
+  await ui.page.goto(
+    `/?recovery=1#access_token=${inviteAccessToken()}&refresh_token=test-refresh-token&type=recovery`
+  );
+
+  await expect(ui.page.getByTestId("retry-auth-link")).toBeVisible();
+  expect(ui.page.url()).toContain("refresh_token=");
+  await ui.page.getByTestId("retry-auth-link").click();
+  await expect(ui.page.getByTestId("recovery-form")).toBeVisible();
+  await expect(ui.page).toHaveURL(/\/\?recovery=1$/);
+  expect(mock.authLinkRequests).toBe(2);
+});
+
 test("expired recovery links show a recovery-specific error", async ({ ui }) => {
   await mockCloud(ui.page);
   await ui.page.goto("/?recovery=1#error=access_denied&error_description=Recovery+link+has+expired");
   await expect(ui.page.getByTestId("account-drawer")).toHaveAttribute("aria-hidden", "false");
   await expect(ui.page.getByTestId("account-status")).toHaveText(
-    "This password reset link is expired or has already been used."
+    "This password reset link is expired or has already been used. Request a new password reset email."
   );
+  await expect(ui.page.getByTestId("sign-in-form")).toBeHidden();
 });
 
 test("expired or used activation links show a stable error", async ({ ui }) => {
@@ -307,8 +404,9 @@ test("expired or used activation links show a stable error", async ({ ui }) => {
   await expect(ui.page.getByTestId("account-drawer")).toHaveAttribute("aria-hidden", "false");
   await expect(ui.page).toHaveURL(/\/\?activation=1$/);
   await expect(ui.page.getByTestId("account-status")).toHaveText(
-    "This activation link is expired or has already been used."
+    "This invitation is expired or has already been used. Ask the person who invited you for a new link."
   );
+  await expect(ui.page.getByTestId("sign-in-form")).toBeHidden();
 });
 
 async function signIn(page: Page): Promise<void> {
@@ -322,7 +420,10 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
   let cloudState = options.cloudState === undefined ? null : options.cloudState;
   let revision = options.revision || 0;
   let conflictPending = Boolean(options.conflictOnce);
+  const authLinkFailures = [...(options.authLinkFailures || [])];
   let plannerReads = 0;
+  let authLinkRequests = 0;
+  let verifyRequests = 0;
   const savedStates: PlannerState[] = [];
   const resetRequests: Array<{ email: string; redirectTo: string }> = [];
   const passwordUpdates: string[] = [];
@@ -371,6 +472,17 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
       });
       return;
     }
+    if (url.pathname === "/auth/v1/verify") {
+      verifyRequests += 1;
+      const redirect = url.searchParams.get("redirect_to") || "http://127.0.0.1:4173/?activation=1";
+      await route.fulfill({
+        status: 302,
+        headers: {
+          Location: `${redirect}#access_token=${inviteAccessToken()}&refresh_token=test-refresh-token&type=invite`,
+        },
+      });
+      return;
+    }
     if (url.pathname === "/auth/v1/logout") {
       await json(route, {});
       return;
@@ -379,6 +491,13 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
       if (route.request().method() === "PUT") {
         const body = route.request().postDataJSON();
         passwordUpdates.push(String(body.password || ""));
+      } else {
+        authLinkRequests += 1;
+        const failure = authLinkFailures.shift();
+        if (failure) {
+          await json(route, failure.body, failure.status);
+          return;
+        }
       }
       await json(route, TEST_USER);
       return;
@@ -420,15 +539,21 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
     get plannerReads() {
       return plannerReads;
     },
+    get authLinkRequests() {
+      return authLinkRequests;
+    },
+    get verifyRequests() {
+      return verifyRequests;
+    },
     passwordUpdates,
     resetRequests,
     savedStates,
   };
 }
 
-async function json(route: Route, body: unknown): Promise<void> {
+async function json(route: Route, body: unknown, status = 200): Promise<void> {
   await route.fulfill({
-    status: 200,
+    status,
     contentType: "application/json",
     headers: {
       "Access-Control-Allow-Origin": "*",
@@ -471,4 +596,12 @@ function inviteAccessToken(): string {
     }),
     "test-signature",
   ].join(".");
+}
+
+function inviteActionUrl(): string {
+  const action = new URL("https://test.supabase.co/auth/v1/verify");
+  action.searchParams.set("token", "invite-token");
+  action.searchParams.set("type", "invite");
+  action.searchParams.set("redirect_to", "http://127.0.0.1:4173/?activation=1");
+  return action.toString();
 }

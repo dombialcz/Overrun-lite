@@ -92,14 +92,27 @@ another ephemeral environment mechanism, then run:
 npm run user:invite -- person@example.com
 ```
 
-The command prints one activation URL and does not send email. Send that URL to
-the intended tester yourself. The user follows it, creates a password, and then
-stays signed in through Supabase's refreshable browser session.
+The command prints one Overrun wrapper URL and does not send email. Send only
+that printed wrapper URL to the intended tester; do not extract or distribute
+the nested Supabase action URL. Overrun first asks the user to accept the
+invitation, so mail and messaging link previews cannot consume the one-time
+Supabase URL before the user clicks. Already-issued raw Supabase invitation
+links remain compatible, but new invitations should always use the wrapper.
+
+After the user accepts, Overrun verifies the invitation and requires a password
+before loading account data. If Overrun reports that an invitation is expired
+or already used, generate a fresh invite rather than resending the old link.
+When diagnosing unexpected failures, check Supabase Authentication logs for a
+403 response or an `otp_expired` event; those indicate expiry, reuse, or a link
+that was consumed before the user completed activation.
 
 The sign-in drawer includes a self-service password recovery flow. Supabase
 sends the reset email and returns the user to `?recovery=1`, where Overrun
 requires a new password before loading account data. Resetting preserves the
-existing user UUID and planner ownership.
+existing user UUID and planner ownership. Recovery emails still contain a
+directly consumable Supabase link in this iteration; the shared callback now
+keeps its credentials available for retry after transient network or provider
+failures and gives a clear next step after terminal failure.
 
 ### AI allowance administration
 
@@ -192,8 +205,9 @@ npm run test:e2e
 The default suite does not contact live Supabase or AI services. Contract tests
 cover public configuration and stable API error shapes, while Playwright mocks
 the Supabase/Auth and OpenAI-compatible network boundaries to exercise login,
-activation, first sync, conflict handling, quota exhaustion, and local-provider
-fallback deterministically.
+scanner-resistant invitation confirmation, activation and recovery retries,
+first sync, conflict handling, quota exhaustion, and local-provider fallback
+deterministically.
 
 All page interaction should start from `ui` in `tests/e2e/fixtures/ui.fixture.ts`.
 Sub page objects are loaded lazily through `ui.calendar`, `ui.taskDetails`,

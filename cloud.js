@@ -2,6 +2,8 @@
   const EMPTY_STATE = { tasks: [], backlog: [] };
   const ACCOUNT_CACHE_PREFIX = "overrun_lite_state:";
   const ACCOUNT_REVISION_PREFIX = "overrun_lite_revision:";
+  const PENDING_INVITE_KEY = "overrun_lite_pending_invite_url";
+  const PASSWORD_SETUP_KEY = "overrun_lite_password_setup";
   const SYNC_DELAY_MS = 750;
 
   let callbacks = {};
@@ -20,14 +22,26 @@
   let usage = null;
   let conflict = null;
   let authLinkError = "";
+  let inviteConfirmationRequired = false;
+  let authRetryAvailable = false;
+  let authLinkInFlight = false;
+  let pendingInviteActionUrl = "";
+  let passwordSetupContext = null;
 
   async function init(nextCallbacks = {}) {
     callbacks = nextCallbacks;
     adoptAuthLinkModeFromFragment();
-    authLinkError = readAuthLinkError();
+    pendingInviteActionUrl = captureInviteConfirmationUrl();
+    passwordSetupContext = readSessionJson(PASSWORD_SETUP_KEY);
+    authLinkError = "";
+    authRetryAvailable = false;
     config = await loadConfig();
+    prepareInviteConfirmation();
     emitCapabilities();
     if (!config.auth.enabled || !global.supabase || !global.supabase.createClient) {
+      if (isAuthFlowRequested() && !authLinkError) {
+        authLinkError = "Account links are unavailable on this deployment.";
+      }
       emitAuth();
       emitSync("Local only");
       return getSnapshot();
@@ -53,6 +67,7 @@
       const nextUserId = user && user.id ? user.id : null;
       emitAuth();
       if (event === "SIGNED_OUT") {
+        clearPasswordSetupContext();
         resetAccountConnection();
         usage = null;
         callbacks.onUsage && callbacks.onUsage(null);
@@ -66,30 +81,28 @@
       }
     });
     global.addEventListener("online", () => {
-      if (!user || syncPaused || !callbacks.getPlannerState) return;
+      if (!user || syncPaused || isPasswordSetup() || !callbacks.getPlannerState) return;
       saveNow(callbacks.getPlannerState()).catch(() => emitSync("Offline"));
     });
 
-    const hasAuthFragment = hasAuthLinkFragment();
-    const authLinkSession = readAuthLinkSession();
-    if (hasAuthFragment) clearAuthFragment();
-    if (isPasswordSetup() && hasAuthFragment && !authLinkSession && !authLinkError) {
-      authLinkError = authLinkFailureMessage();
-    }
-    if (authLinkSession) {
-      const { data, error } = await client.auth.setSession(authLinkSession);
-      if (error || !data || !data.session) {
-        authLinkError = authLinkExpiredMessage();
-      } else {
-        authLinkError = "";
-        session = data.session;
-        user = session.user || null;
-      }
+    const authLinkCallback = readAuthLinkCallback();
+    if (authLinkCallback.kind === "terminal") {
+      markTerminalAuthLinkFailure();
+    } else if (authLinkCallback.kind === "session") {
+      await establishAuthLinkSession(authLinkCallback.credentials);
     }
 
     const { data } = await client.auth.getSession();
     session = data && data.session ? data.session : null;
     user = session && session.user ? session.user : null;
+    if (
+      isPasswordSetup()
+      && !isVerifiedPasswordSetup()
+      && !authRetryAvailable
+      && authLinkCallback.kind === "none"
+    ) {
+      markTerminalAuthLinkFailure();
+    }
     emitAuth();
     if (user && !isPasswordSetup()) await connectAccount(user);
     else emitSync("Local only");
@@ -148,10 +161,12 @@
 
   async function setPassword(password) {
     ensureClient();
+    if (!isVerifiedPasswordSetup()) throw new Error(authLinkExpiredMessage());
     validatePassword(password);
     const { error } = await client.auth.updateUser({ password });
     if (error) throw new Error(error.message || "Could not set the password.");
     authLinkError = "";
+    clearPasswordSetupContext();
     const url = new URL(global.location.href);
     url.searchParams.delete("activation");
     url.searchParams.delete("recovery");
@@ -303,7 +318,7 @@
   }
 
   function scheduleSave(plannerState) {
-    if (!user || !client || syncPaused) return;
+    if (!user || !client || syncPaused || isPasswordSetup()) return;
     pendingState = cloneState(plannerState);
     emitSync("Saving");
     clearTimeout(saveTimer);
@@ -315,7 +330,7 @@
   }
 
   async function saveNow(plannerState, options = {}) {
-    if (!user || !client) return false;
+    if (!user || !client || isPasswordSetup()) return false;
     const saveUserId = user.id;
     const localState = cloneState(plannerState);
     const { data, error } = await client.rpc("save_planner_state", {
@@ -393,15 +408,27 @@
   }
 
   function getSnapshot() {
+    const activationRequired = Boolean(user && isActivation() && isVerifiedPasswordSetup());
+    const recoveryRequired = Boolean(user && isRecovery() && isVerifiedPasswordSetup());
     return {
       config,
       session,
       user,
       usage,
-      activationRequired: isActivation(),
-      recoveryRequired: isRecovery(),
+      activationRequired,
+      recoveryRequired,
+      inviteConfirmationRequired,
+      invitePending: isInviteConfirmation(),
+      activationPending: Boolean(isActivation() && !activationRequired),
+      recoveryPending: Boolean(isRecovery() && !recoveryRequired),
+      authRetryAvailable,
+      authLinkInFlight,
       authError: authLinkError,
     };
+  }
+
+  function isInviteConfirmation() {
+    return new URLSearchParams(global.location.search).get("invite") === "1";
   }
 
   function isActivation() {
@@ -414,6 +441,10 @@
 
   function isPasswordSetup() {
     return isActivation() || isRecovery();
+  }
+
+  function isAuthFlowRequested() {
+    return isInviteConfirmation() || isPasswordSetup();
   }
 
   function isHostedAvailable() {
@@ -429,12 +460,8 @@
 
   function emitAuth() {
     callbacks.onAuth && callbacks.onAuth({
-      user,
-      session,
-      activationRequired: Boolean(user && isActivation()),
-      recoveryRequired: Boolean(user && isRecovery()),
+      ...getSnapshot(),
       authEnabled: Boolean(config.auth.enabled),
-      authError: authLinkError,
     });
   }
 
@@ -509,28 +536,33 @@
     }
   }
 
-  function readAuthLinkError() {
+  function readAuthLinkCallback() {
+    if (!isPasswordSetup()) return { kind: "none" };
     const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
-    const description = params.get("error_description");
-    if (!description) return "";
-    return /expired|invalid|already/i.test(description)
-      ? authLinkExpiredMessage()
-      : authLinkFailureMessage();
-  }
-
-  function readAuthLinkSession() {
-    if (!isPasswordSetup()) return null;
-    const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
+    const hasCallbackValues = [
+      "access_token",
+      "refresh_token",
+      "error",
+      "error_code",
+      "error_description",
+    ].some((name) => params.has(name));
+    if (!hasCallbackValues) return { kind: "none" };
+    if (params.has("error") || params.has("error_code") || params.has("error_description")) {
+      return { kind: "terminal" };
+    }
     const type = params.get("type");
     if (type && ((isActivation() && type !== "invite") || (isRecovery() && type !== "recovery"))) {
-      return null;
+      return { kind: "terminal" };
     }
     const accessToken = params.get("access_token");
     const refreshToken = params.get("refresh_token");
-    if (!accessToken || !refreshToken) return null;
+    if (!accessToken || !refreshToken) return { kind: "terminal" };
     return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
+      kind: "session",
+      credentials: {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      },
     };
   }
 
@@ -545,24 +577,14 @@
 
   function authLinkExpiredMessage() {
     return isRecovery()
-      ? "This password reset link is expired or has already been used."
-      : "This activation link is expired or has already been used.";
+      ? "This password reset link is expired or has already been used. Request a new password reset email."
+      : "This invitation is expired or has already been used. Ask the person who invited you for a new link.";
   }
 
   function authLinkFailureMessage() {
     return isRecovery()
-      ? "This password reset link could not be verified."
-      : "This activation link could not be verified.";
-  }
-
-  function hasAuthLinkFragment() {
-    const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
-    return [
-      "access_token",
-      "refresh_token",
-      "error",
-      "error_description",
-    ].some((name) => params.has(name));
+      ? "We could not verify this password reset link. Check your connection and try again."
+      : "We could not verify this invitation. Check your connection and try again.";
   }
 
   function clearAuthFragment() {
@@ -571,13 +593,180 @@
     global.history.replaceState({}, "", `${url.pathname}${url.search}`);
   }
 
+  function captureInviteConfirmationUrl() {
+    if (!isInviteConfirmation()) return readSessionValue(PENDING_INVITE_KEY);
+    const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
+    const actionUrl = params.get("confirmation_url") || "";
+    if (global.location.hash) clearAuthFragment();
+    if (actionUrl) writeSessionValue(PENDING_INVITE_KEY, actionUrl);
+    return actionUrl || readSessionValue(PENDING_INVITE_KEY);
+  }
+
+  function prepareInviteConfirmation() {
+    inviteConfirmationRequired = false;
+    if (!isInviteConfirmation()) return;
+    const contract = global.OverrunAuthLink;
+    const validation = contract && contract.validateInviteActionUrl
+      ? contract.validateInviteActionUrl(pendingInviteActionUrl, {
+          supabaseUrl: config.auth.url,
+          appOrigin: global.location.origin,
+        })
+      : false;
+    if (config.auth.enabled && validation) {
+      inviteConfirmationRequired = true;
+      authLinkError = "";
+      return;
+    }
+    pendingInviteActionUrl = "";
+    removeSessionValue(PENDING_INVITE_KEY);
+    authLinkError = "This invitation link is invalid. Ask the person who invited you for a new link.";
+  }
+
+  function acceptInvite() {
+    if (!inviteConfirmationRequired || !pendingInviteActionUrl) {
+      throw new Error("This invitation link is invalid. Ask for a new link.");
+    }
+    const validation = global.OverrunAuthLink.validateInviteActionUrl(pendingInviteActionUrl, {
+      supabaseUrl: config.auth.url,
+      appOrigin: global.location.origin,
+    });
+    if (!validation) {
+      prepareInviteConfirmation();
+      emitAuth();
+      throw new Error("This invitation link is invalid. Ask for a new link.");
+    }
+    global.location.replace(pendingInviteActionUrl);
+  }
+
+  async function retryAuthLink() {
+    ensureClient();
+    const callback = readAuthLinkCallback();
+    if (callback.kind !== "session") {
+      markTerminalAuthLinkFailure();
+      emitAuth();
+      return false;
+    }
+    return establishAuthLinkSession(callback.credentials);
+  }
+
+  async function establishAuthLinkSession(credentials) {
+    authLinkInFlight = true;
+    authRetryAvailable = false;
+    emitAuth();
+    try {
+      const { data, error } = await client.auth.setSession(credentials);
+      if (error || !data || !data.session || !data.session.user) {
+        if (isTerminalAuthLinkError(error)) {
+          markTerminalAuthLinkFailure();
+        } else {
+          authLinkError = authLinkFailureMessage();
+          authRetryAvailable = true;
+        }
+        return false;
+      }
+      session = data.session;
+      user = data.session.user;
+      passwordSetupContext = {
+        mode: isRecovery() ? "recovery" : "activation",
+        userId: user.id,
+      };
+      writeSessionValue(PASSWORD_SETUP_KEY, JSON.stringify(passwordSetupContext));
+      authLinkError = "";
+      authRetryAvailable = false;
+      clearAuthFragment();
+      pendingInviteActionUrl = "";
+      removeSessionValue(PENDING_INVITE_KEY);
+      return true;
+    } catch (err) {
+      if (isTerminalAuthLinkError(err)) {
+        markTerminalAuthLinkFailure();
+      } else {
+        authLinkError = authLinkFailureMessage();
+        authRetryAvailable = true;
+      }
+      return false;
+    } finally {
+      authLinkInFlight = false;
+      emitAuth();
+    }
+  }
+
+  function isTerminalAuthLinkError(error) {
+    if (!error) return false;
+    const status = Number(error.status || error.statusCode || 0);
+    if (status >= 500) return false;
+    if (status >= 400 && status < 500) return true;
+    const value = `${error.code || ""} ${error.message || ""}`;
+    return /otp_expired|refresh_token_not_found|token[^ ]* expired|already[ _-]?used/i.test(value);
+  }
+
+  function markTerminalAuthLinkFailure() {
+    authLinkError = authLinkExpiredMessage();
+    authRetryAvailable = false;
+    authLinkInFlight = false;
+    clearAuthFragment();
+    pendingInviteActionUrl = "";
+    removeSessionValue(PENDING_INVITE_KEY);
+    clearPasswordSetupContext();
+  }
+
+  function isVerifiedPasswordSetup() {
+    if (!user || !passwordSetupContext) return false;
+    const expectedMode = isRecovery() ? "recovery" : isActivation() ? "activation" : "";
+    return Boolean(
+      expectedMode
+      && passwordSetupContext.mode === expectedMode
+      && passwordSetupContext.userId === user.id
+    );
+  }
+
+  function clearPasswordSetupContext() {
+    passwordSetupContext = null;
+    removeSessionValue(PASSWORD_SETUP_KEY);
+  }
+
+  function readSessionJson(key) {
+    try {
+      const raw = global.sessionStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function readSessionValue(key) {
+    try {
+      return global.sessionStorage.getItem(key) || "";
+    } catch (err) {
+      return "";
+    }
+  }
+
+  function writeSessionValue(key, value) {
+    try {
+      global.sessionStorage.setItem(key, String(value));
+    } catch (err) {
+      // The current in-memory value remains available for this page load.
+    }
+  }
+
+  function removeSessionValue(key) {
+    try {
+      global.sessionStorage.removeItem(key);
+    } catch (err) {
+      // Ignore storage restrictions.
+    }
+  }
+
   global.OverrunCloud = {
+    acceptInvite,
     getAccessToken,
     getSnapshot,
     init,
     isHostedAvailable,
     refreshUsage,
     requestPasswordReset,
+    retryAuthLink,
     resolveConflict,
     scheduleSave,
     setPassword,
