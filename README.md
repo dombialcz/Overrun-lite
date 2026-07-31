@@ -36,6 +36,7 @@ reload-or-overwrite choice.
    - Disable public user sign-ups. Admin invite generation still works.
    - Set the Site URL to the production `APP_ORIGIN`.
    - Add `${APP_ORIGIN}/?activation=1` to the allowed redirect URLs.
+   - Add `${APP_ORIGIN}/?recovery=1` to the allowed redirect URLs.
    - Set email/OTP link expiry to 86,400 seconds (24 hours).
    - Require at least 12 password characters, with lower and uppercase letters
      plus a number. The client mirrors these checks for immediate feedback.
@@ -67,10 +68,10 @@ The command prints one activation URL and does not send email. Send that URL to
 the intended tester yourself. The user follows it, creates a password, and then
 stays signed in through Supabase's refreshable browser session.
 
-There is deliberately no self-service password recovery in this beta. Do not
-delete and recreate a user as a casual reset: planner ownership is tied to the
-user UUID. Handle a forgotten password as a manual administrative case until a
-recovery flow is added.
+The sign-in drawer includes a self-service password recovery flow. Supabase
+sends the reset email and returns the user to `?recovery=1`, where Overrun
+requires a new password before loading account data. Resetting preserves the
+existing user UUID and planner ownership.
 
 ### AI allowance administration
 

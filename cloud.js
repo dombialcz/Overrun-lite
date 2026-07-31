@@ -16,10 +16,12 @@
   let connectingUserId = null;
   let usage = null;
   let conflict = null;
-  let authLinkError = readAuthLinkError();
+  let authLinkError = "";
 
   async function init(nextCallbacks = {}) {
     callbacks = nextCallbacks;
+    adoptAuthLinkModeFromFragment();
+    authLinkError = readAuthLinkError();
     config = await loadConfig();
     emitCapabilities();
     if (!config.auth.enabled || !global.supabase || !global.supabase.createClient) {
@@ -53,7 +55,7 @@
         callbacks.onUsage && callbacks.onUsage(null);
         callbacks.onGuest && callbacks.onGuest();
         emitSync("Local only");
-      } else if (user && event !== "TOKEN_REFRESHED") {
+      } else if (user && event !== "TOKEN_REFRESHED" && !isPasswordSetup()) {
         connectAccount(user).catch(() => emitSync("Offline"));
       }
     });
@@ -65,13 +67,13 @@
     const hasAuthFragment = hasAuthLinkFragment();
     const authLinkSession = readAuthLinkSession();
     if (hasAuthFragment) clearAuthFragment();
-    if (isActivation() && hasAuthFragment && !authLinkSession && !authLinkError) {
-      authLinkError = "This activation link could not be verified.";
+    if (isPasswordSetup() && hasAuthFragment && !authLinkSession && !authLinkError) {
+      authLinkError = authLinkFailureMessage();
     }
     if (authLinkSession) {
       const { data, error } = await client.auth.setSession(authLinkSession);
       if (error || !data || !data.session) {
-        authLinkError = "This activation link is expired or has already been used.";
+        authLinkError = authLinkExpiredMessage();
       } else {
         authLinkError = "";
         session = data.session;
@@ -83,7 +85,7 @@
     session = data && data.session ? data.session : null;
     user = session && session.user ? session.user : null;
     emitAuth();
-    if (user) await connectAccount(user);
+    if (user && !isPasswordSetup()) await connectAccount(user);
     else emitSync("Local only");
     return getSnapshot();
   }
@@ -125,6 +127,19 @@
     if (error) throw new Error("Email or password is incorrect.");
   }
 
+  async function requestPasswordReset(email) {
+    ensureClient();
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      throw new Error("Enter your account email first.");
+    }
+    const redirect = new URL("/?recovery=1", global.location.origin);
+    const { error } = await client.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: redirect.toString(),
+    });
+    if (error) throw new Error("Could not send a password reset email. Try again later.");
+  }
+
   async function setPassword(password) {
     ensureClient();
     validatePassword(password);
@@ -133,8 +148,10 @@
     authLinkError = "";
     const url = new URL(global.location.href);
     url.searchParams.delete("activation");
+    url.searchParams.delete("recovery");
     global.history.replaceState({}, "", `${url.pathname}${url.search}`);
     emitAuth();
+    if (user) connectAccount(user).catch(() => emitSync("Offline"));
   }
 
   async function signOut() {
@@ -321,12 +338,21 @@
       user,
       usage,
       activationRequired: isActivation(),
+      recoveryRequired: isRecovery(),
       authError: authLinkError,
     };
   }
 
   function isActivation() {
     return new URLSearchParams(global.location.search).get("activation") === "1";
+  }
+
+  function isRecovery() {
+    return new URLSearchParams(global.location.search).get("recovery") === "1";
+  }
+
+  function isPasswordSetup() {
+    return isActivation() || isRecovery();
   }
 
   function isHostedAvailable() {
@@ -345,6 +371,7 @@
       user,
       session,
       activationRequired: Boolean(user && isActivation()),
+      recoveryRequired: Boolean(user && isRecovery()),
       authEnabled: Boolean(config.auth.enabled),
       authError: authLinkError,
     });
@@ -417,13 +444,17 @@
     const description = params.get("error_description");
     if (!description) return "";
     return /expired|invalid|already/i.test(description)
-      ? "This activation link is expired or has already been used."
-      : "This activation link could not be verified.";
+      ? authLinkExpiredMessage()
+      : authLinkFailureMessage();
   }
 
   function readAuthLinkSession() {
-    if (!isActivation()) return null;
+    if (!isPasswordSetup()) return null;
     const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
+    const type = params.get("type");
+    if (type && ((isActivation() && type !== "invite") || (isRecovery() && type !== "recovery"))) {
+      return null;
+    }
     const accessToken = params.get("access_token");
     const refreshToken = params.get("refresh_token");
     if (!accessToken || !refreshToken) return null;
@@ -431,6 +462,27 @@
       access_token: accessToken,
       refresh_token: refreshToken,
     };
+  }
+
+  function adoptAuthLinkModeFromFragment() {
+    const params = new URLSearchParams(String(global.location.hash || "").replace(/^#/, ""));
+    const type = params.get("type");
+    if (isPasswordSetup() || (type !== "invite" && type !== "recovery")) return;
+    const url = new URL(global.location.href);
+    url.searchParams.set(type === "invite" ? "activation" : "recovery", "1");
+    global.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  function authLinkExpiredMessage() {
+    return isRecovery()
+      ? "This password reset link is expired or has already been used."
+      : "This activation link is expired or has already been used.";
+  }
+
+  function authLinkFailureMessage() {
+    return isRecovery()
+      ? "This password reset link could not be verified."
+      : "This activation link could not be verified.";
   }
 
   function hasAuthLinkFragment() {
@@ -455,6 +507,7 @@
     init,
     isHostedAvailable,
     refreshUsage,
+    requestPasswordReset,
     resolveConflict,
     scheduleSave,
     setPassword,

@@ -7,6 +7,7 @@ All notable changes to Overrun Lite are documented here.
 ## [Unreleased]
 
 ### Added
+- **Password recovery** — signed-out users can request a Supabase reset email and securely choose a new password when the recovery link returns to Overrun.
 - **Done backlog** — completed day tasks now move immediately into a collapsed, newest-first Done archive and can be restored to the open backlog.
 - **Invite-only Supabase accounts** — manually generated, one-time activation links now lead to password setup and persistent multi-device sessions without public sign-up.
 - **Conflict-safe cloud sync** — authenticated planner data syncs through revision-checked Supabase state with explicit first-login and concurrent-edit choices.
