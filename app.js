@@ -422,6 +422,9 @@ function updateAIAvailability() {
       button.disabled = disabled;
       button.title = disabled ? reason : "";
     });
+  if (!hasAnsweredClarification(state.reviewDraft)) {
+    els.reanalyzeDump.disabled = true;
+  }
   renderAIUsageLabelOnly();
 }
 
@@ -1400,6 +1403,7 @@ function renderReview() {
 
   const isBreakdownDraft = draft.type === "task_breakdown";
   const isContextDraft = draft.type === "context_organize";
+  const hasQuestions = Array.isArray(draft.questions) && draft.questions.length > 0;
   els.reviewHeading.textContent = isBreakdownDraft
     ? "Review task breakdown"
     : isContextDraft
@@ -1410,7 +1414,7 @@ function renderReview() {
     : isContextDraft
       ? "Apply accepted changes"
       : "Apply accepted tasks";
-  els.reanalyzeDump.hidden = isBreakdownDraft;
+  els.reanalyzeDump.hidden = isBreakdownDraft || !hasQuestions;
   els.reviewSummary.textContent = draft.summary || "Review the AI proposal before applying it.";
   els.reviewWarnings.innerHTML = "";
   (draft.warnings || []).forEach((warning) => {
@@ -1433,18 +1437,12 @@ function renderReviewQuestions(draft) {
   els.reviewQuestions.innerHTML = "";
   if (!draft.answers) draft.answers = {};
   const questions = Array.isArray(draft.questions) ? draft.questions : [];
+  els.reviewQuestions.hidden = questions.length === 0;
+  if (!questions.length) return;
+
   const heading = document.createElement("h3");
-  heading.textContent = "Follow-up questions";
+  heading.textContent = "Optional clarifications";
   els.reviewQuestions.appendChild(heading);
-  if (!questions.length) {
-    const empty = document.createElement("p");
-    empty.className = "helper";
-    empty.textContent = draft.type === "task_breakdown"
-      ? "No follow-up questions for this breakdown."
-      : "No follow-up questions for this dump.";
-    els.reviewQuestions.appendChild(empty);
-    return;
-  }
 
   questions.forEach((question) => {
     const row = document.createElement("label");
@@ -1454,10 +1452,12 @@ function renderReviewQuestions(draft) {
     hint.textContent = question.reason;
     const input = document.createElement("textarea");
     input.rows = 2;
+    input.placeholder = "Optional answer";
     input.value = draft.answers[question.id] || "";
     input.addEventListener("input", () => {
       draft.answers[question.id] = input.value;
       saveReviewDraft();
+      updateAIAvailability();
     });
     row.append(hint, input);
     els.reviewQuestions.appendChild(row);
@@ -1819,14 +1819,46 @@ function sortBacklogByPriority() {
   state.backlog = [...openTasks, ...doneTasks];
 }
 
-function createPlannerPayload(mode = "brain_dump") {
+function createPlannerPayload(mode = "brain_dump", options = {}) {
+  const refinementDraft = options.refine && state.reviewDraft && state.reviewDraft.type !== "task_breakdown"
+    ? state.reviewDraft
+    : null;
   return {
     mode,
-    input: els.brainDump.value.trim(),
-    answers: state.reviewDraft ? state.reviewDraft.answers : {},
+    input: refinementDraft && refinementDraft.sourceText
+      ? refinementDraft.sourceText
+      : els.brainDump.value.trim(),
+    clarifications: buildClarifications(refinementDraft),
     currentTasks: state.tasks.map(summarizeTaskForAI),
     currentBacklog: state.backlog.filter((task) => !task.completed).map(summarizeTaskForAI),
   };
+}
+
+function buildClarifications(draft) {
+  if (!draft || !Array.isArray(draft.questions)) return [];
+  const answers = draft.answers && typeof draft.answers === "object" ? draft.answers : {};
+  return draft.questions
+    .map((question) => ({
+      id: question.id,
+      question: question.question,
+      reason: question.reason,
+      answer: String(answers[question.id] || "").trim(),
+    }))
+    .filter((clarification) => clarification.answer)
+    .slice(0, 2);
+}
+
+function hasAnsweredClarification(draft) {
+  return buildClarifications(draft).length > 0;
+}
+
+function removeAnsweredQuestions(questions, clarifications) {
+  const answeredQuestionText = new Set(
+    (clarifications || []).map((item) => normalizeComparableTitle(item.question))
+  );
+  return (questions || []).filter(
+    (question) => !answeredQuestionText.has(normalizeComparableTitle(question.question))
+  );
 }
 
 function createBreakdownPayload(task) {
@@ -1922,7 +1954,7 @@ function normalizeMergeSuggestionsForReview(mergeSuggestions) {
 
 async function analyzeDump(options = {}) {
   const mode = options.mode === "context_organize" ? "context_organize" : "brain_dump";
-  const payload = createPlannerPayload(mode);
+  const payload = createPlannerPayload(mode, { refine: options.refine === true });
   if (!payload.input) {
     setStatus("Add a brain dump before analyzing.", true);
     return;
@@ -1938,6 +1970,7 @@ async function analyzeDump(options = {}) {
     const normalized = mode === "context_organize"
       ? ai.normalizeContextOrganizeResponse(result, payload)
       : ai.normalizePlannerResponse(result);
+    const questions = removeAnsweredQuestions(normalized.questions, payload.clarifications);
     const { filtered, skipped } = filterExistingTaskProposals(normalized.proposedTasks, payload);
     const warnings = [...normalized.warnings];
     if (skipped) {
@@ -1955,9 +1988,9 @@ async function analyzeDump(options = {}) {
       sourceText: payload.input,
       summary: normalized.summary,
       warnings,
-      questions: normalized.questions,
+      questions,
       priorityUpdates: normalized.priorityUpdates,
-      answers: payload.answers || {},
+      answers: {},
       proposedTasks: filtered.map((task) => ({
         ...task,
         accepted: true,
@@ -2419,7 +2452,10 @@ function setupEvents() {
   els.analyzeDump.addEventListener("click", analyzeDump);
   els.contextOrganize.addEventListener("click", () => analyzeDump({ mode: "context_organize" }));
   els.reanalyzeDump.addEventListener("click", () => {
-    analyzeDump({ mode: state.reviewDraft && state.reviewDraft.type === "context_organize" ? "context_organize" : "brain_dump" });
+    analyzeDump({
+      mode: state.reviewDraft && state.reviewDraft.type === "context_organize" ? "context_organize" : "brain_dump",
+      refine: true,
+    });
   });
   els.clearDump.addEventListener("click", () => {
     els.brainDump.value = "";

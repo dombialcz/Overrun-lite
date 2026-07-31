@@ -76,7 +76,7 @@ existing user UUID and planner ownership.
 ### AI allowance administration
 
 New accounts receive 10 hosted AI actions per `Europe/Warsaw` calendar day.
-Analyze, Context organize, Re-analyze, and Task breakdown each cost one action.
+Analyze, Context organize, Refine with answers, and Help me get started each cost one action.
 Edit `profiles.ai_daily_limit` in the Supabase dashboard to change a tester's
 allowance; setting it to `0` disables hosted AI for that user.
 
@@ -97,8 +97,11 @@ The planner supports two AI targets:
   the Vercel environment.
 - `Local OpenAI-compatible`: the browser calls `{baseUrl}/chat/completions` directly. The local server must allow browser CORS. This mode is intended for local demos with servers such as LM Studio, Ollama-compatible OpenAI endpoints, or other OpenAI-compatible local gateways.
 
-AI output is always reviewed before it is applied. Brain dumps create draft
-backlog tasks, and task breakdown creates draft subtasks for the selected task.
+AI output is always reviewed before it is applied. Brain dumps create immediately
+usable draft backlog tasks and may show up to two optional clarifications when an
+answer would materially improve the proposal. Answering one enables a separate
+refinement action; it never blocks applying the initial draft. Detailed task steps
+remain an explicit “Help me get started” action for the selected task.
 If hosted AI is not configured, the account and sync features continue working;
 hosted AI controls are disabled instead of producing missing-key errors.
 

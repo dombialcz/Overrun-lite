@@ -25,6 +25,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Streamlined AI brain dumps** — capture now favors immediately useful draft tasks, limits optional clarifications to two essential questions, keeps routine prerequisites out of task lists, and reserves detailed decomposition for the task-level “Help me get started” action.
 - **Completion flow** — the Done button, full progress, and timer completion now close and archive tasks immediately; backlog export preserves completion timestamps and clearing the backlog preserves Done history.
 - **Hosted AI quota reservation** — fixed the atomic daily-usage reservation conflict clause and added sanitized server diagnostics for quota RPC failures.
 - **Invite activation callback** — invitation tokens are now consumed explicitly, removed from the address bar immediately, and covered by a token-shaped browser regression test before the password form opens.

@@ -155,12 +155,21 @@
     },
   };
 
+  const brainDumpPlanningGuidance = [
+    "Produce a useful draft plan immediately and make reasonable everyday assumptions.",
+    "Ask at most two concise follow-up questions, and only when an answer would materially change a task's outcome, scope, deadline, priority, or actionability.",
+    "Do not ask whether the user owns ordinary tools or materials, which ordinary method they will use, or whether they will take routine precautions.",
+    "Do not create acquisition or preparation tasks unless the user explicitly says something is missing or blocking progress.",
+    "Use subtasks only for genuinely complex work or for steps the user explicitly mentioned; leave routine decomposition for the task-breakdown feature.",
+    "Put material safety concerns in brief warnings, never in questions or automatic subtasks.",
+    "When clarifications are provided, treat their answers as authoritative, return a complete refined proposal, and do not repeat answered questions.",
+  ];
+
   const plannerSystemPrompt = [
     "You are Overrun Lite, an AI planning assistant.",
     "Turn messy brain dumps into concrete tasks for a local-first planner.",
     "Optimize backlog ranking for impact plus urgency.",
-    "Ask follow-up questions when a task is ambiguous, blocked, missing a deadline, or too vague to act on.",
-    "Break large work into actionable subtasks while preserving the parent task.",
+    ...brainDumpPlanningGuidance,
     "Never claim a task is complete. Never directly schedule the user's day.",
     "Return only valid JSON matching the requested schema.",
   ].join(" ");
@@ -177,6 +186,7 @@
     "You are Overrun Lite, a context-aware planning assistant.",
     "Compare a new brain dump against the user's current planned tasks and backlog.",
     "Propose genuinely new tasks, and propose merge suggestions when the dump overlaps existing tasks.",
+    ...brainDumpPlanningGuidance,
     "Merge suggestions may update priority, urgency, impact, priority reason, and append subtasks only.",
     "Never delete, complete, move, resize, or schedule existing tasks.",
     "Never claim work is done. Return only valid JSON matching the requested schema.",
@@ -189,6 +199,7 @@
     if (payload && payload.mode === "context_organize") {
       return buildContextOrganizeMessages(payload);
     }
+    const clarifications = normalizeClarifications(payload && payload.clarifications);
     return [
       {
         role: "system",
@@ -200,6 +211,7 @@
           {
             mode: payload.mode,
             input: payload.input,
+            clarifications,
             answers: payload.answers || {},
             currentTasks: payload.currentTasks || [],
             currentBacklog: payload.currentBacklog || [],
@@ -219,6 +231,7 @@
   }
 
   function buildContextOrganizeMessages(payload) {
+    const clarifications = normalizeClarifications(payload && payload.clarifications);
     return [
       {
         role: "system",
@@ -230,6 +243,7 @@
           {
             mode: "context_organize",
             input: payload.input,
+            clarifications,
             answers: payload.answers || {},
             currentTasks: payload.currentTasks || [],
             currentBacklog: payload.currentBacklog || [],
@@ -300,6 +314,25 @@
     ];
   }
 
+  function normalizeClarifications(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item, index) => {
+        if (!item || typeof item !== "object") return null;
+        const question = String(item.question || "").trim();
+        const answer = String(item.answer || "").trim();
+        if (!question || !answer) return null;
+        return {
+          id: String(item.id || `question-${index + 1}`),
+          question,
+          reason: String(item.reason || "Clarifies the task before planning.").trim(),
+          answer,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 2);
+  }
+
   function createEmptyPlannerResponse(summary) {
     return {
       summary: summary || "",
@@ -320,7 +353,7 @@
       summary: String(source.summary || ""),
       proposedTasks: proposedTasks.map(normalizeTaskProposal).filter(Boolean),
       questions: Array.isArray(source.questions)
-        ? source.questions.map(normalizeQuestion).filter(Boolean)
+        ? source.questions.map(normalizeQuestion).filter(Boolean).slice(0, 2)
         : [],
       priorityUpdates: Array.isArray(source.priorityUpdates)
         ? source.priorityUpdates.map(normalizePriorityUpdate).filter(Boolean)
@@ -341,7 +374,7 @@
         .map((item) => normalizeMergeSuggestion(item, context))
         .filter(Boolean),
       questions: Array.isArray(source.questions)
-        ? source.questions.map(normalizeQuestion).filter(Boolean)
+        ? source.questions.map(normalizeQuestion).filter(Boolean).slice(0, 2)
         : [],
       warnings: Array.isArray(source.warnings)
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
@@ -509,6 +542,7 @@
     breakdownResponseSchema,
     createEmptyPlannerResponse,
     normalizeBreakdownResponse,
+    normalizeClarifications,
     normalizeContextOrganizeResponse,
     normalizePlannerResponse,
     extractJson,
