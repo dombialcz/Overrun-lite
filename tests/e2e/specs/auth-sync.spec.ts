@@ -143,6 +143,57 @@ test("activation requires a strong matching password and clears the one-time URL
   expect(new URL(ui.page.url()).searchParams.has("activation")).toBe(false);
 });
 
+test("forgot password requests a recovery email without revealing account existence", async ({ ui }) => {
+  const mock = await mockCloud(ui.page);
+  await ui.goto();
+
+  await ui.page.getByTestId("open-account").click();
+  await ui.page.getByTestId("account-email").fill(TEST_USER.email);
+  await ui.page.getByTestId("forgot-password").click();
+
+  await expect(ui.page.getByTestId("account-status")).toHaveText(
+    "If that account exists, a password reset email is on its way."
+  );
+  expect(mock.resetRequests).toHaveLength(1);
+  expect(mock.resetRequests[0].email).toBe(TEST_USER.email);
+  expect(mock.resetRequests[0].redirectTo).toBe("http://127.0.0.1:4173/?recovery=1");
+});
+
+test("recovery links open password reset and preserve the existing account", async ({ ui }) => {
+  const mock = await mockCloud(ui.page, {
+    cloudState: { tasks: [task("recovered-task", "Recovered account task")], backlog: [] },
+  });
+  await ui.page.goto(
+    `/#access_token=${inviteAccessToken()}&refresh_token=test-refresh-token&type=recovery`
+  );
+
+  await expect(ui.page.getByTestId("recovery-form")).toBeVisible();
+  await expect(ui.page.getByTestId("activation-form")).toBeHidden();
+  await expect(ui.page).toHaveURL(/\/?recovery=1$/);
+  await ui.page.getByTestId("recovery-password").fill("SecurePlanner2");
+  await ui.page.getByTestId("recovery-password-confirm").fill("DifferentPlanner2");
+  await ui.page.getByTestId("reset-password").click();
+  await expect(ui.page.getByTestId("account-status")).toHaveText("Passwords do not match.");
+
+  await ui.page.getByTestId("recovery-password-confirm").fill("SecurePlanner2");
+  await ui.page.getByTestId("reset-password").click();
+
+  await expect(ui.page.getByTestId("account-drawer")).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.page.getByTestId("sync-status")).toHaveText("Synced");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  expect(mock.passwordUpdates).toEqual(["SecurePlanner2"]);
+  expect(new URL(ui.page.url()).searchParams.has("recovery")).toBe(false);
+});
+
+test("expired recovery links show a recovery-specific error", async ({ ui }) => {
+  await mockCloud(ui.page);
+  await ui.page.goto("/?recovery=1#error=access_denied&error_description=Recovery+link+has+expired");
+  await expect(ui.page.getByTestId("account-drawer")).toHaveAttribute("aria-hidden", "false");
+  await expect(ui.page.getByTestId("account-status")).toHaveText(
+    "This password reset link is expired or has already been used."
+  );
+});
+
 test("expired or used activation links show a stable error", async ({ ui }) => {
   await mockCloud(ui.page);
   await ui.page.goto("/?activation=1#error=access_denied&error_description=Invite+link+has+expired");
@@ -165,6 +216,8 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
   let revision = options.revision || 0;
   let conflictPending = Boolean(options.conflictOnce);
   const savedStates: PlannerState[] = [];
+  const resetRequests: Array<{ email: string; redirectTo: string }> = [];
+  const passwordUpdates: string[] = [];
 
   await page.route("**/api/config", (route) => route.fulfill({
     contentType: "application/json",
@@ -190,6 +243,15 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
   }));
   await page.route("https://test.supabase.co/**", async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === "/auth/v1/recover") {
+      const body = route.request().postDataJSON();
+      resetRequests.push({
+        email: String(body.email || ""),
+        redirectTo: url.searchParams.get("redirect_to") || String(body.redirect_to || ""),
+      });
+      await json(route, {});
+      return;
+    }
     if (url.pathname === "/auth/v1/token") {
       await json(route, {
         access_token: "test-access-token",
@@ -206,6 +268,10 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
       return;
     }
     if (url.pathname === "/auth/v1/user") {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON();
+        passwordUpdates.push(String(body.password || ""));
+      }
       await json(route, TEST_USER);
       return;
     }
@@ -241,7 +307,7 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
     await json(route, {});
   });
 
-  return { savedStates };
+  return { passwordUpdates, resetRequests, savedStates };
 }
 
 async function json(route: Route, body: unknown): Promise<void> {

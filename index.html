@@ -150,6 +150,7 @@
           <input id="account-password" data-testid="account-password" type="password" autocomplete="current-password" required />
           <div class="drawer-actions">
             <button id="sign-in" class="primary" data-testid="sign-in" type="submit">Sign in</button>
+            <button id="forgot-password" class="ghost" data-testid="forgot-password" type="button">Forgot password?</button>
           </div>
         </form>
         <form id="activation-form" class="hidden" data-testid="activation-form">
@@ -160,6 +161,16 @@
           <p class="helper">Use at least 12 characters with upper and lowercase letters and a number.</p>
           <div class="drawer-actions">
             <button id="activate-account" class="primary" data-testid="activate-account" type="submit">Activate account</button>
+          </div>
+        </form>
+        <form id="recovery-form" class="hidden" data-testid="recovery-form">
+          <label for="recovery-password">New password</label>
+          <input id="recovery-password" data-testid="recovery-password" type="password" autocomplete="new-password" minlength="12" required />
+          <label for="recovery-password-confirm">Confirm new password</label>
+          <input id="recovery-password-confirm" data-testid="recovery-password-confirm" type="password" autocomplete="new-password" minlength="12" required />
+          <p class="helper">Use at least 12 characters with upper and lowercase letters and a number.</p>
+          <div class="drawer-actions">
+            <button id="reset-password" class="primary" data-testid="reset-password" type="submit">Set new password</button>
           </div>
         </form>
         <div id="signed-in-actions" class="hidden" data-testid="signed-in-actions">

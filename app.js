@@ -110,6 +110,7 @@ const els = {
   discardReview: document.getElementById("discard-review"),
   doneTime: document.getElementById("done-time"),
   exportBacklog: document.getElementById("export-backlog"),
+  forgotPassword: document.getElementById("forgot-password"),
   importBacklog: document.getElementById("import-backlog"),
   initialSyncCloud: document.getElementById("initial-sync-cloud"),
   initialSyncCopy: document.getElementById("initial-sync-copy"),
@@ -122,6 +123,10 @@ const els = {
   openSettings: document.getElementById("open-settings"),
   providerMode: document.getElementById("provider-mode"),
   reanalyzeDump: document.getElementById("reanalyze-dump"),
+  recoveryForm: document.getElementById("recovery-form"),
+  recoveryPassword: document.getElementById("recovery-password"),
+  recoveryPasswordConfirm: document.getElementById("recovery-password-confirm"),
+  resetPassword: document.getElementById("reset-password"),
   reviewHeading: document.getElementById("review-heading"),
   reviewPanel: document.getElementById("review-panel"),
   reviewQuestions: document.getElementById("review-questions"),
@@ -335,17 +340,24 @@ function finishInitialSyncChoice(choice) {
 function renderAccount(authState = {}) {
   cloudUser = authState.user || null;
   const activationRequired = Boolean(authState.activationRequired);
+  const recoveryRequired = Boolean(authState.recoveryRequired);
+  const passwordSetupRequired = activationRequired || recoveryRequired;
   const signedIn = Boolean(cloudUser);
-  els.signInForm.classList.toggle("hidden", signedIn || activationRequired);
+  els.signInForm.classList.toggle("hidden", signedIn || passwordSetupRequired);
   els.activationForm.classList.toggle("hidden", !activationRequired);
-  els.signedInActions.classList.toggle("hidden", !signedIn || activationRequired);
+  els.recoveryForm.classList.toggle("hidden", !recoveryRequired);
+  els.signedInActions.classList.toggle("hidden", !signedIn || passwordSetupRequired);
   els.accountHeading.textContent = activationRequired
     ? "Activate account"
+    : recoveryRequired
+      ? "Reset password"
     : signedIn
       ? "Your account"
       : "Sign in";
   els.accountCopy.textContent = activationRequired
     ? "Create a password to finish activating this invite-only account."
+    : recoveryRequired
+      ? "Choose a new password for your Overrun account."
     : signedIn
       ? "Your planner is connected to your account and can sync across devices."
       : cloudCapabilities.authEnabled
@@ -358,7 +370,7 @@ function renderAccount(authState = {}) {
     setAccountStatus(authState.authError, true);
     openDrawer(els.accountPanel);
   }
-  if (activationRequired) openDrawer(els.accountPanel);
+  if (passwordSetupRequired) openDrawer(els.accountPanel);
   updateAIAvailability();
 }
 
@@ -2437,6 +2449,19 @@ function setupEvents() {
       setAccountStatus(err.message || "Could not sign in.", true);
     }
   });
+  els.forgotPassword.addEventListener("click", async () => {
+    if (!els.accountEmail.reportValidity()) return;
+    els.forgotPassword.disabled = true;
+    setAccountStatus("Sending reset email...");
+    try {
+      await cloud.requestPasswordReset(els.accountEmail.value);
+      setAccountStatus("If that account exists, a password reset email is on its way.");
+    } catch (err) {
+      setAccountStatus(err.message || "Could not send a password reset email.", true);
+    } finally {
+      els.forgotPassword.disabled = false;
+    }
+  });
   els.activationForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (els.activationPassword.value !== els.activationPasswordConfirm.value) {
@@ -2453,6 +2478,24 @@ function setupEvents() {
       closeDrawer(els.accountPanel);
     } catch (err) {
       setAccountStatus(err.message || "Could not activate the account.", true);
+    }
+  });
+  els.recoveryForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (els.recoveryPassword.value !== els.recoveryPasswordConfirm.value) {
+      setAccountStatus("Passwords do not match.", true);
+      return;
+    }
+    setAccountStatus("Resetting password...");
+    try {
+      await cloud.setPassword(els.recoveryPassword.value);
+      els.recoveryPassword.value = "";
+      els.recoveryPasswordConfirm.value = "";
+      setAccountStatus("Password reset complete.");
+      renderAccount({ user: cloudUser, recoveryRequired: false });
+      closeDrawer(els.accountPanel);
+    } catch (err) {
+      setAccountStatus(err.message || "Could not reset the password.", true);
     }
   });
   els.signOut.addEventListener("click", async () => {
