@@ -7,6 +7,8 @@ All notable changes to Overrun Lite are documented here.
 ## [Unreleased]
 
 ### Added
+- **Scanner-resistant invitation confirmation** — newly generated invite links now open an Overrun confirmation step and consume the one-time Supabase URL only after an explicit user click.
+- **Recoverable auth callbacks** — activation and password-reset callbacks preserve credentials for transient retries while expired, invalid, or used links show a dedicated next step instead of falling back to sign-in.
 - **Manual subtask editing** — task and meeting drafts can now add, rename, estimate, complete, and remove subtasks without an AI callback, including on open backlog items.
 - **Draft-based task creation** — Add task and Add meeting now open a focused editor and persist only after an explicit Create action.
 - **Shared backlog editor** — open backlog cards expose a dedicated Edit action without moving the item onto the day calendar.
@@ -30,6 +32,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Safer invite operations** — `npm run user:invite` now prints only the Overrun wrapper URL, and operator guidance covers fresh-link regeneration plus Supabase `otp_expired`/403 diagnosis.
 - **Stable account reconciliation** — first-sync choices now run once when a browser adopts an account; repeated Supabase session confirmations and window focus changes keep using the connected account without reopening the local-versus-cloud prompt.
 - **Focused task drawer** — task edits now use Save or Cancel, keep subtasks prominent, fold priority/progress and AI assistance by default, and retain accessible controls on narrow screens.
 - **Clear button interaction states** — primary, secondary, and danger buttons now use explicit theme-aware hover colors and washed, variant-specific disabled treatments instead of relying on a barely visible brightness change.

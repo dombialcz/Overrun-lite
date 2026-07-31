@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
 const { createClient } = require("@supabase/supabase-js");
+const {
+  buildActivationRedirectUrl,
+  buildInviteWrapperUrl,
+} = require("../authLink");
 
 async function main() {
   const [command, emailArg] = process.argv.slice(2);
@@ -11,7 +15,7 @@ async function main() {
 
   const url = requireEnv("SUPABASE_URL");
   const secretKey = requireEnv("SUPABASE_SECRET_KEY");
-  const appOrigin = requireEnv("APP_ORIGIN").replace(/\/+$/, "");
+  const appOrigin = requireEnv("APP_ORIGIN");
   const supabase = createClient(url, secretKey, {
     auth: {
       autoRefreshToken: false,
@@ -24,14 +28,14 @@ async function main() {
     type: "invite",
     email,
     options: {
-      redirectTo: `${appOrigin}/?activation=1`,
+      redirectTo: buildActivationRedirectUrl(appOrigin),
     },
   });
   if (error) throw error;
 
   const link = data && data.properties && data.properties.action_link;
   if (!link) throw new Error("Supabase did not return an activation link.");
-  process.stdout.write(`${link}\n`);
+  process.stdout.write(`${buildInviteWrapperUrl(appOrigin, link)}\n`);
 }
 
 function requireEnv(name) {
@@ -40,7 +44,15 @@ function requireEnv(name) {
   return value;
 }
 
-main().catch((err) => {
-  process.stderr.write(`${err.message || err}\n`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((err) => {
+    process.stderr.write(`${err.message || err}\n`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  buildActivationRedirectUrl,
+  buildInviteWrapperUrl,
+  main,
+};
