@@ -46,8 +46,8 @@
           <p class="eyebrow">Brain dump</p>
           <h1>Dump everything on your mind.</h1>
           <p class="helper">
-            The planner will extract tasks, surface follow-up questions, break down large work,
-            and keep the backlog ranked by impact and urgency.
+            The planner will extract and prioritize draft tasks, asking only when an essential
+            detail is unclear. Open a task later when you want help breaking it into steps.
           </p>
         </div>
         <div class="inbox-controls">
@@ -232,7 +232,7 @@
         <div id="review-tasks" class="review-section" data-testid="review-tasks"></div>
         <div class="drawer-actions">
           <button id="apply-review" class="primary" data-testid="apply-review">Apply accepted tasks</button>
-          <button id="reanalyze-dump" class="ghost" data-testid="reanalyze-dump">Re-analyze with answers</button>
+          <button id="reanalyze-dump" class="ghost" data-testid="reanalyze-dump">Refine with answers</button>
           <button id="discard-review" class="ghost" data-testid="discard-review">Discard draft</button>
         </div>
       </div>
@@ -349,9 +349,10 @@
 
         <section class="detail-section">
           <div class="section-heading compact">
-            <h3>AI breakdown</h3>
+            <h3>Help me get started</h3>
           </div>
-          <label for="detail-breakdown-instructions">Breakdown instructions</label>
+          <p class="helper">Turn a task that feels too large or difficult to begin into practical steps.</p>
+          <label for="detail-breakdown-instructions">Optional focus</label>
           <textarea
             id="detail-breakdown-instructions"
             data-testid="detail-breakdown-instructions"
@@ -373,7 +374,7 @@
               </select>
             </label>
           </div>
-          <button id="detail-breakdown-ai" class="ghost" data-testid="detail-breakdown-ai">Break down with AI</button>
+          <button id="detail-breakdown-ai" class="ghost" data-testid="detail-breakdown-ai">Suggest steps with AI</button>
         </section>
 
         <div class="drawer-actions detail-actions">

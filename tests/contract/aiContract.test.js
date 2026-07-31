@@ -3,6 +3,64 @@ const test = require("node:test");
 
 const ai = require("../../aiContract");
 
+test("planner prompt keeps capture concise and sends complete clarification context", () => {
+  const messages = ai.buildPlannerMessages({
+    mode: "brain_dump",
+    input: "Install flower holders on the wall.",
+    clarifications: [
+      {
+        id: "deadline",
+        question: "When does this need to be ready?",
+        reason: "The deadline affects urgency.",
+        answer: "Next Friday",
+      },
+      {
+        id: "scope",
+        question: "Which room is this for?",
+        reason: "The room affects scope.",
+        answer: "Kitchen",
+      },
+      {
+        id: "ignored",
+        question: "Should this be ignored?",
+        reason: "Only two clarifications are allowed.",
+        answer: "Yes",
+      },
+    ],
+  });
+
+  assert.match(messages[0].content, /at most two concise follow-up questions/i);
+  assert.match(messages[0].content, /ordinary tools or materials/i);
+  assert.match(messages[0].content, /Do not create acquisition or preparation tasks/i);
+  assert.match(messages[0].content, /material safety concerns in brief warnings/i);
+
+  const request = JSON.parse(messages[1].content);
+  assert.deepEqual(request.clarifications, [
+    {
+      id: "deadline",
+      question: "When does this need to be ready?",
+      reason: "The deadline affects urgency.",
+      answer: "Next Friday",
+    },
+    {
+      id: "scope",
+      question: "Which room is this for?",
+      reason: "The room affects scope.",
+      answer: "Kitchen",
+    },
+  ]);
+});
+
+test("context organize uses the same streamlined capture guidance", () => {
+  const messages = ai.buildPlannerMessages({
+    mode: "context_organize",
+    input: "Install flower holders on the wall.",
+  });
+
+  assert.match(messages[0].content, /make reasonable everyday assumptions/i);
+  assert.match(messages[0].content, /leave routine decomposition for the task-breakdown feature/i);
+});
+
 test("planner normalization accepts existing task aliases", () => {
   const normalized = ai.normalizePlannerResponse({
     tasks: [
@@ -21,6 +79,32 @@ test("planner normalization accepts existing task aliases", () => {
   assert.equal(normalized.proposedTasks[0].minutes, 45);
   assert.equal(normalized.proposedTasks[0].priorityScore, 82);
   assert.equal(normalized.proposedTasks[0].subtasks[0].title, "Draft bullets");
+});
+
+test("planner normalization limits follow-up questions to two", () => {
+  const normalized = ai.normalizePlannerResponse({
+    questions: [
+      "First essential question?",
+      "Second essential question?",
+      "Excess question?",
+    ],
+  });
+
+  assert.deepEqual(
+    normalized.questions.map((item) => item.question),
+    ["First essential question?", "Second essential question?"]
+  );
+});
+
+test("context organize normalization limits follow-up questions to two", () => {
+  const normalized = ai.normalizeContextOrganizeResponse({
+    questions: ["First?", "Second?", "Third?"],
+  }, {
+    currentTasks: [],
+    currentBacklog: [],
+  });
+
+  assert.equal(normalized.questions.length, 2);
 });
 
 test("context organize normalization accepts new tasks and merge suggestions", () => {

@@ -4,6 +4,7 @@ const {
   contextOrganizeResponseSchema,
   extractJson,
   normalizeBreakdownResponse,
+  normalizeClarifications,
   normalizeContextOrganizeResponse,
   normalizePlannerResponse,
   plannerResponseSchema,
@@ -137,6 +138,7 @@ function normalizeRequestBody(body) {
   return {
     mode: payload.mode,
     input: String(payload.input),
+    clarifications: normalizeClarifications(payload.clarifications),
     answers: payload.answers && typeof payload.answers === "object" ? payload.answers : {},
     currentTasks: Array.isArray(payload.currentTasks) ? payload.currentTasks : [],
     currentBacklog: Array.isArray(payload.currentBacklog) ? payload.currentBacklog : [],
