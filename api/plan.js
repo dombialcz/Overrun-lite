@@ -20,6 +20,7 @@ const { normalizeUsage } = require("./ai-usage");
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const DEEPSEEK_V4_FLASH_MODEL = "deepseek/deepseek-v4-flash";
 const MAX_HOSTED_COMPLETION_TOKENS = 1800;
 const OPENROUTER_MAX_PRICE = {
   prompt: 0.4,
@@ -160,7 +161,7 @@ async function requestPlanner(payload, config) {
       return postChatCompletion(config, messages, false, schema, schemaName);
     });
     providerCompleted = true;
-    const parsed = extractJson(response);
+    const parsed = parseProviderJson(response);
     if (payload.mode === "task_breakdown") return normalizeBreakdownResponse(parsed);
     if (payload.mode === "context_organize") return normalizeContextOrganizeResponse(parsed, payload);
     return normalizePlannerResponse(parsed);
@@ -232,6 +233,9 @@ function buildChatCompletionBody(config, messages, useSchema, schema = plannerRe
       sort: "throughput",
       max_price: OPENROUTER_MAX_PRICE,
     };
+    if (isDeepSeekV4Flash(config.model)) {
+      body.reasoning = { effort: "none" };
+    }
   }
 
   if (useSchema) {
@@ -258,6 +262,23 @@ function isOpenRouter(value) {
   }
 }
 
+function isDeepSeekV4Flash(value) {
+  return String(value || "").split(":", 1)[0] === DEEPSEEK_V4_FLASH_MODEL;
+}
+
+function parseProviderJson(response) {
+  try {
+    return extractJson(response);
+  } catch (cause) {
+    const err = new Error("Hosted AI returned an invalid response. Please try again.");
+    err.statusCode = 502;
+    err.code = "provider_invalid_response";
+    err.expose = true;
+    err.cause = cause;
+    throw err;
+  }
+}
+
 function trimSlash(value) {
   return String(value || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
@@ -270,3 +291,4 @@ function badRequest(message) {
 }
 
 module.exports.buildChatCompletionBody = buildChatCompletionBody;
+module.exports.parseProviderJson = parseProviderJson;

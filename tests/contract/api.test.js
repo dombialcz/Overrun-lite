@@ -83,6 +83,7 @@ test("hosted planner tunes OpenRouter requests without changing other providers"
       completion: 1.0,
     },
   });
+  assert.deepEqual(openRouterBody.reasoning, { effort: "none" });
   assert.deepEqual(openRouterBody.response_format, {
     type: "json_schema",
     json_schema: {
@@ -98,7 +99,27 @@ test("hosted planner tunes OpenRouter requests without changing other providers"
   }, messages, false);
   assert.equal(openAIBody.max_tokens, 1800);
   assert.equal(openAIBody.provider, undefined);
+  assert.equal(openAIBody.reasoning, undefined);
   assert.deepEqual(openAIBody.response_format, { type: "json_object" });
+
+  const otherOpenRouterBody = planHandler.buildChatCompletionBody({
+    model: "openai/gpt-4o-mini",
+    baseUrl: "https://openrouter.ai/api/v1",
+  }, messages, false);
+  assert.equal(otherOpenRouterBody.reasoning, undefined);
+});
+
+test("hosted planner identifies invalid provider content", () => {
+  assert.throws(() => planHandler.parseProviderJson(""), (err) => {
+    assert.equal(err.statusCode, 502);
+    assert.equal(err.code, "provider_invalid_response");
+    assert.equal(err.expose, true);
+    return true;
+  });
+
+  assert.deepEqual(planHandler.parseProviderJson('{"summary":"Ready"}'), {
+    summary: "Ready",
+  });
 });
 
 test("AI usage response clamps counters and exposes Warsaw reset data", () => {
