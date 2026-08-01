@@ -20,6 +20,11 @@ const { normalizeUsage } = require("./ai-usage");
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const MAX_HOSTED_COMPLETION_TOKENS = 1800;
+const OPENROUTER_MAX_PRICE = {
+  prompt: 0.4,
+  completion: 1.0,
+};
 
 module.exports = async function handler(req, res) {
   if (handleOptions(req, res, ["POST", "OPTIONS"])) return;
@@ -185,24 +190,7 @@ function getResponseSchema(mode) {
 }
 
 async function postChatCompletion(config, messages, useSchema, schema = plannerResponseSchema, schemaName = "overrun_planner_response") {
-  const body = {
-    model: config.model,
-    messages,
-    temperature: 0.2,
-  };
-
-  if (useSchema) {
-    body.response_format = {
-      type: "json_schema",
-      json_schema: {
-        name: schemaName,
-        strict: true,
-        schema,
-      },
-    };
-  } else {
-    body.response_format = { type: "json_object" };
-  }
+  const body = buildChatCompletionBody(config, messages, useSchema, schema, schemaName);
 
   const response = await fetch(`${trimSlash(config.baseUrl)}/chat/completions`, {
     method: "POST",
@@ -230,6 +218,46 @@ async function postChatCompletion(config, messages, useSchema, schema = plannerR
   return content;
 }
 
+function buildChatCompletionBody(config, messages, useSchema, schema = plannerResponseSchema, schemaName = "overrun_planner_response") {
+  const body = {
+    model: config.model,
+    messages,
+    temperature: 0.2,
+    max_tokens: MAX_HOSTED_COMPLETION_TOKENS,
+  };
+
+  if (isOpenRouter(config.baseUrl)) {
+    body.provider = {
+      require_parameters: true,
+      sort: "throughput",
+      max_price: OPENROUTER_MAX_PRICE,
+    };
+  }
+
+  if (useSchema) {
+    body.response_format = {
+      type: "json_schema",
+      json_schema: {
+        name: schemaName,
+        strict: true,
+        schema,
+      },
+    };
+  } else {
+    body.response_format = { type: "json_object" };
+  }
+
+  return body;
+}
+
+function isOpenRouter(value) {
+  try {
+    return new URL(value).hostname === "openrouter.ai";
+  } catch (err) {
+    return false;
+  }
+}
+
 function trimSlash(value) {
   return String(value || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
@@ -240,3 +268,5 @@ function badRequest(message) {
   err.code = "invalid_request";
   return err;
 }
+
+module.exports.buildChatCompletionBody = buildChatCompletionBody;

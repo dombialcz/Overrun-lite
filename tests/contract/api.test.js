@@ -61,6 +61,46 @@ test("hosted planner returns stable unavailable and authentication errors", asyn
   });
 });
 
+test("hosted planner tunes OpenRouter requests without changing other providers", () => {
+  const messages = [{ role: "user", content: "Plan this." }];
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["summary"],
+    properties: { summary: { type: "string" } },
+  };
+  const openRouterBody = planHandler.buildChatCompletionBody({
+    model: "deepseek/deepseek-v4-flash",
+    baseUrl: "https://openrouter.ai/api/v1/",
+  }, messages, true, schema, "planner_response");
+
+  assert.equal(openRouterBody.max_tokens, 1800);
+  assert.deepEqual(openRouterBody.provider, {
+    require_parameters: true,
+    sort: "throughput",
+    max_price: {
+      prompt: 0.4,
+      completion: 1.0,
+    },
+  });
+  assert.deepEqual(openRouterBody.response_format, {
+    type: "json_schema",
+    json_schema: {
+      name: "planner_response",
+      strict: true,
+      schema,
+    },
+  });
+
+  const openAIBody = planHandler.buildChatCompletionBody({
+    model: "gpt-4o-mini",
+    baseUrl: "https://api.openai.com/v1",
+  }, messages, false);
+  assert.equal(openAIBody.max_tokens, 1800);
+  assert.equal(openAIBody.provider, undefined);
+  assert.deepEqual(openAIBody.response_format, { type: "json_object" });
+});
+
 test("AI usage response clamps counters and exposes Warsaw reset data", () => {
   assert.deepEqual(normalizeUsage({
     usage_day: "2026-07-23",

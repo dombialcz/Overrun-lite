@@ -2347,7 +2347,7 @@ async function requestVercelAI(payload) {
     error.code = json.code || "request_failed";
     throw error;
   }
-  if (cloud) await cloud.refreshUsage();
+  if (cloud) void cloud.refreshUsage();
   return json;
 }
 
