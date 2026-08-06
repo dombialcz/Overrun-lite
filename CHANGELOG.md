@@ -32,6 +32,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Extended day calendar** — the planner now spans 04:00 through 24:00 while preserving existing tasks at their saved clock times.
 - **Safer task deletion** — deleting an existing task or meeting from the editor now requires explicit confirmation.
 - **Safer invite operations** — `npm run user:invite` now prints only the Overrun wrapper URL, and operator guidance covers fresh-link regeneration plus Supabase `otp_expired`/403 diagnosis.
 - **Stable account reconciliation** — first-sync choices now run once when a browser adopts an account; repeated Supabase session confirmations and window focus changes keep using the connected account without reopening the local-versus-cloud prompt.

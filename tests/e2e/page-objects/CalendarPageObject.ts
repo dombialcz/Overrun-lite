@@ -98,6 +98,7 @@ export class CalendarPageObject {
 
   async moveBlock(index: number, deltaY: number): Promise<void> {
     const block = this.block(index);
+    await block.scrollIntoViewIfNeeded();
     const box = await block.boundingBox();
     if (!box) throw new Error("Calendar block is not visible.");
     const startX = box.x + box.width / 2;
@@ -110,6 +111,7 @@ export class CalendarPageObject {
 
   async resizeBlock(index: number, deltaY: number): Promise<void> {
     const grip = this.block(index).getByTestId("resize-handle");
+    await grip.scrollIntoViewIfNeeded();
     const box = await grip.boundingBox();
     if (!box) throw new Error("Resize handle is not visible.");
     const startX = box.x + box.width / 2;

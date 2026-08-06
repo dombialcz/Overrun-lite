@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260731-task-editor" />
+    <link rel="stylesheet" href="styles.css?v=20260806-calendar-range" />
   </head>
   <body>
     <div class="bg-layer"></div>
@@ -120,6 +120,10 @@
         </div>
         <div class="calendar-grid">
           <div class="time-labels">
+            <span>04:00</span>
+            <span>05:00</span>
+            <span>06:00</span>
+            <span>07:00</span>
             <span>08:00</span>
             <span>09:00</span>
             <span>10:00</span>
@@ -131,6 +135,12 @@
             <span>16:00</span>
             <span>17:00</span>
             <span>18:00</span>
+            <span>19:00</span>
+            <span>20:00</span>
+            <span>21:00</span>
+            <span>22:00</span>
+            <span>23:00</span>
+            <span class="time-label-end">24:00</span>
           </div>
           <div class="calendar-day">
             <div class="grid-lines"></div>
@@ -374,7 +384,7 @@
 
             <div class="detail-grid task-schedule-grid">
               <label id="detail-task-start-field" for="detail-task-start">Start time
-                <input id="detail-task-start" data-testid="detail-task-start" type="time" min="08:00" max="18:50" step="300" />
+                <input id="detail-task-start" data-testid="detail-task-start" type="time" min="04:00" max="23:50" step="300" />
               </label>
               <label for="detail-task-duration">Minutes
                 <input id="detail-task-duration" data-testid="detail-task-duration" type="number" min="10" max="480" step="5" required />
