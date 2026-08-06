@@ -23,6 +23,8 @@
             "priorityReason",
             "urgency",
             "impact",
+            "destination",
+            "startTime",
             "subtasks",
           ],
           properties: {
@@ -32,6 +34,8 @@
             priorityReason: { type: "string" },
             urgency: { type: "integer", minimum: 1, maximum: 5 },
             impact: { type: "integer", minimum: 1, maximum: 5 },
+            destination: { type: "string", enum: ["day", "backlog"] },
+            startTime: { type: "string" },
             subtasks: {
               type: "array",
               items: {
@@ -163,6 +167,9 @@
     "Use subtasks only for genuinely complex work or for steps the user explicitly mentioned; leave routine decomposition for the task-breakdown feature.",
     "Put material safety concerns in brief warnings, never in questions or automatic subtasks.",
     "When clarifications are provided, treat their answers as authoritative, return a complete refined proposal, and do not repeat answered questions.",
+    "Always set destination and startTime for every proposed task.",
+    "When scheduling.canPlanDay is true, suggest a realistic non-overlapping day plan within its time range and maximum planned minutes; set fitting tasks to destination day with an HH:MM startTime, and put overflow or less important work in the backlog with an empty startTime.",
+    "When scheduling.canPlanDay is false, set every new task to destination backlog with an empty startTime.",
   ];
 
   const plannerSystemPrompt = [
@@ -170,7 +177,7 @@
     "Turn messy brain dumps into concrete tasks for a local-first planner.",
     "Optimize backlog ranking for impact plus urgency.",
     ...brainDumpPlanningGuidance,
-    "Never claim a task is complete. Never directly schedule the user's day.",
+    "Never claim a task is complete. Scheduling suggestions are drafts that require user review before they are applied.",
     "Return only valid JSON matching the requested schema.",
   ].join(" ");
 
@@ -200,6 +207,7 @@
       return buildContextOrganizeMessages(payload);
     }
     const clarifications = normalizeClarifications(payload && payload.clarifications);
+    const scheduling = normalizeSchedulingContext(payload);
     return [
       {
         role: "system",
@@ -215,6 +223,7 @@
             answers: payload.answers || {},
             currentTasks: payload.currentTasks || [],
             currentBacklog: payload.currentBacklog || [],
+            scheduling,
             instructions: {
               priorityScale: "1-100, where 100 is highest priority",
               urgencyScale: "1-5, where 5 is most urgent",
@@ -232,6 +241,7 @@
 
   function buildContextOrganizeMessages(payload) {
     const clarifications = normalizeClarifications(payload && payload.clarifications);
+    const scheduling = normalizeSchedulingContext(payload);
     return [
       {
         role: "system",
@@ -247,6 +257,7 @@
             answers: payload.answers || {},
             currentTasks: payload.currentTasks || [],
             currentBacklog: payload.currentBacklog || [],
+            scheduling,
             instructions: {
               priorityScale: "1-100, where 100 is highest priority",
               urgencyScale: "1-5, where 5 is most urgent",
@@ -333,6 +344,20 @@
       .slice(0, 2);
   }
 
+  function normalizeSchedulingContext(payload) {
+    const source = payload && payload.scheduling && typeof payload.scheduling === "object"
+      ? payload.scheduling
+      : {};
+    const currentTasks = payload && Array.isArray(payload.currentTasks) ? payload.currentTasks : [];
+    return {
+      canPlanDay: Boolean(source.canPlanDay) && currentTasks.length === 0,
+      dayStartTime: normalizeClockValue(source.dayStartTime, "04:00", true),
+      dayEndTime: normalizeClockValue(source.dayEndTime, "24:00", true),
+      preferredStartTime: normalizeClockValue(source.preferredStartTime, "08:00", false),
+      maxPlannedMinutes: clampInt(source.maxPlannedMinutes, 60, 1200, 480),
+    };
+  }
+
   function createEmptyPlannerResponse(summary) {
     return {
       summary: summary || "",
@@ -343,15 +368,16 @@
     };
   }
 
-  function normalizePlannerResponse(value) {
+  function normalizePlannerResponse(value, context) {
     if (value && value.mode === "task_breakdown") {
       return normalizeBreakdownResponse(value);
     }
     const source = value && typeof value === "object" ? value : {};
     const proposedTasks = collectTaskProposals(source);
+    const scheduling = normalizeSchedulingContext(context);
     return {
       summary: String(source.summary || ""),
-      proposedTasks: proposedTasks.map(normalizeTaskProposal).filter(Boolean),
+      proposedTasks: proposedTasks.map((item) => normalizeTaskProposal(item, scheduling)).filter(Boolean),
       questions: Array.isArray(source.questions)
         ? source.questions.map(normalizeQuestion).filter(Boolean).slice(0, 2)
         : [],
@@ -367,9 +393,10 @@
   function normalizeContextOrganizeResponse(value, context) {
     const source = value && typeof value === "object" ? value : {};
     const proposedTasks = collectTaskProposals(source);
+    const scheduling = normalizeSchedulingContext(context);
     return {
       summary: String(source.summary || ""),
-      proposedTasks: proposedTasks.map(normalizeTaskProposal).filter(Boolean),
+      proposedTasks: proposedTasks.map((item) => normalizeTaskProposal(item, scheduling)).filter(Boolean),
       mergeSuggestions: collectMergeSuggestions(source)
         .map((item) => normalizeMergeSuggestion(item, context))
         .filter(Boolean),
@@ -393,11 +420,12 @@
     ];
   }
 
-  function normalizeTaskProposal(item) {
+  function normalizeTaskProposal(item, scheduling) {
     if (!item || typeof item !== "object") return null;
     const title = String(item.title || item.task || item.name || "").trim();
     if (!title) return null;
     const minutes = clampInt(item.minutes || item.timeEstimate || item.duration, 10, 480, 60);
+    const destination = normalizeTaskDestination(item.destination || item.placement, scheduling.canPlanDay);
     return {
       title,
       minutes,
@@ -405,10 +433,32 @@
       priorityReason: String(item.priorityReason || item.description || "Impact and urgency estimate.").trim(),
       urgency: clampInt(item.urgency, 1, 5, 3),
       impact: clampInt(item.impact, 1, 5, 3),
+      destination,
+      startTime: destination === "day"
+        ? normalizeClockValue(item.startTime || item.scheduledStart || item.start, "", false)
+        : "",
       subtasks: Array.isArray(item.subtasks)
         ? item.subtasks.map(normalizeSubtask).filter(Boolean)
       : [],
     };
+  }
+
+  function normalizeTaskDestination(value, canPlanDay) {
+    if (!canPlanDay) return "backlog";
+    const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (["backlog", "later", "unscheduled"].includes(normalized)) return "backlog";
+    return "day";
+  }
+
+  function normalizeClockValue(value, fallback, allow24) {
+    const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return fallback;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (minutes < 0 || minutes > 59) return fallback;
+    if (hours === 24) return allow24 && minutes === 0 ? "24:00" : fallback;
+    if (hours < 0 || hours > 23) return fallback;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   }
 
   function normalizeBreakdownResponse(value) {
@@ -545,6 +595,7 @@
     normalizeClarifications,
     normalizeContextOrganizeResponse,
     normalizePlannerResponse,
+    normalizeSchedulingContext,
     extractJson,
   };
 });

@@ -16,6 +16,8 @@ const DAY_END_HOUR = 24;
 const DAY_START_MINUTES = (DAY_START_HOUR - STORED_TIME_ORIGIN_HOUR) * 60;
 const DAY_END_MINUTES = (DAY_END_HOUR - STORED_TIME_ORIGIN_HOUR) * 60;
 const DAY_DURATION_MINUTES = (DAY_END_HOUR - DAY_START_HOUR) * 60;
+const DEFAULT_AI_DAY_START_MINUTES = 0;
+const MAX_AI_DAY_PLAN_MINUTES = 8 * 60;
 const MOVE_STEP_MINUTES = 5;
 const COLUMN_OVERLAP_MINUTES = 15;
 const COMPACT_OVERLAP_OFFSET_PX = 12;
@@ -1772,6 +1774,7 @@ function renderReviewTasks(draft) {
   proposedTasks.forEach((task, index) => {
     const card = document.createElement("article");
     card.className = "proposal-card";
+    card.dataset.testid = "task-proposal";
     if (!task.accepted) card.classList.add("muted-card");
 
     const accept = document.createElement("input");
@@ -1797,6 +1800,35 @@ function renderReviewTasks(draft) {
     });
     const priority = createNumberInput(task.priorityScore, 1, 100, (value) => {
       task.priorityScore = value;
+      saveReviewDraft();
+    });
+
+    const destination = document.createElement("select");
+    destination.dataset.testid = "proposal-destination";
+    destination.append(
+      new Option("Day planner", "day"),
+      new Option("Backlog", "backlog")
+    );
+    destination.value = task.destination === "day" ? "day" : "backlog";
+    destination.addEventListener("change", () => {
+      task.destination = destination.value;
+      if (task.destination === "day" && !task.startTime) {
+        task.startTime = formatClockTime(DEFAULT_AI_DAY_START_MINUTES);
+      }
+      saveReviewDraft();
+      renderReviewTasks(draft);
+    });
+
+    const startTime = document.createElement("input");
+    startTime.type = "time";
+    startTime.min = formatClockTime(DAY_START_MINUTES);
+    startTime.max = formatClockTime(DAY_END_MINUTES - MIN_MINUTES);
+    startTime.step = String(MOVE_STEP_MINUTES * 60);
+    startTime.value = task.startTime || "";
+    startTime.disabled = task.destination !== "day";
+    startTime.dataset.testid = "proposal-start-time";
+    startTime.addEventListener("input", () => {
+      task.startTime = startTime.value;
       saveReviewDraft();
     });
 
@@ -1845,6 +1877,8 @@ function renderReviewTasks(draft) {
       makeField("Accept", accept),
       makeField("Task", title),
       makeField("Minutes", minutes),
+      makeField("Destination", destination),
+      makeField("Start time", startTime),
       makeField("Priority", priority),
       makeField("Reason", reason)
     );
@@ -2123,6 +2157,13 @@ function createPlannerPayload(mode = "brain_dump", options = {}) {
     clarifications: buildClarifications(refinementDraft),
     currentTasks: state.tasks.map(summarizeTaskForAI),
     currentBacklog: state.backlog.filter((task) => !task.completed).map(summarizeTaskForAI),
+    scheduling: {
+      canPlanDay: state.tasks.length === 0,
+      dayStartTime: formatClockTime(DAY_START_MINUTES),
+      dayEndTime: formatClockTime(DAY_END_MINUTES),
+      preferredStartTime: formatClockTime(DEFAULT_AI_DAY_START_MINUTES),
+      maxPlannedMinutes: MAX_AI_DAY_PLAN_MINUTES,
+    },
   };
 }
 
@@ -2218,6 +2259,76 @@ function filterExistingTaskProposals(proposedTasks, payload) {
   return { filtered, skipped };
 }
 
+function parseProposedStartMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  const parsed = (hours - STORED_TIME_ORIGIN_HOUR) * 60 + minutes;
+  const snapped = Math.round(parsed / MOVE_STEP_MINUTES) * MOVE_STEP_MINUTES;
+  return snapped >= DAY_START_MINUTES && snapped < DAY_END_MINUTES ? snapped : null;
+}
+
+function proposalSlotIsOpen(startMinutes, duration, intervals) {
+  const endMinutes = startMinutes + duration;
+  return intervals.every((interval) =>
+    endMinutes <= interval.startMinutes || startMinutes >= interval.endMinutes
+  );
+}
+
+function findProposalStartMinutes(preferredStart, duration, intervals) {
+  const latestStart = DAY_END_MINUTES - duration;
+  if (latestStart < DAY_START_MINUTES) return null;
+  const searchStarts = [preferredStart, DEFAULT_AI_DAY_START_MINUTES, DAY_START_MINUTES]
+    .filter((value, index, values) => Number.isFinite(value) && values.indexOf(value) === index);
+
+  for (const searchStart of searchStarts) {
+    const firstCandidate = Math.max(DAY_START_MINUTES, searchStart);
+    for (let candidate = firstCandidate; candidate <= latestStart; candidate += MOVE_STEP_MINUTES) {
+      if (proposalSlotIsOpen(candidate, duration, intervals)) return candidate;
+    }
+  }
+  return null;
+}
+
+function prepareProposedTasksForReview(proposedTasks, canPlanDay) {
+  const intervals = [];
+  let plannedMinutes = 0;
+  let overflowCount = 0;
+  const proposals = proposedTasks.map((task) => {
+    const proposal = { ...task };
+    if (!canPlanDay || proposal.destination === "backlog") {
+      proposal.destination = "backlog";
+      return proposal;
+    }
+
+    if (plannedMinutes + proposal.minutes > MAX_AI_DAY_PLAN_MINUTES) {
+      proposal.destination = "backlog";
+      overflowCount += 1;
+      return proposal;
+    }
+
+    const preferredStart = parseProposedStartMinutes(proposal.startTime);
+    const startMinutes = findProposalStartMinutes(preferredStart, proposal.minutes, intervals);
+    if (startMinutes === null) {
+      proposal.destination = "backlog";
+      overflowCount += 1;
+      return proposal;
+    }
+
+    proposal.destination = "day";
+    proposal.startTime = formatClockTime(startMinutes);
+    plannedMinutes += proposal.minutes;
+    intervals.push({
+      startMinutes,
+      endMinutes: startMinutes + proposal.minutes,
+    });
+    return proposal;
+  });
+  return { proposals, overflowCount };
+}
+
 function findTaskById(taskId) {
   return [...state.tasks, ...state.backlog].find((item) => item.id === taskId);
 }
@@ -2261,12 +2372,16 @@ async function analyzeDump(options = {}) {
     const result = await requestAIPlan(payload);
     const normalized = mode === "context_organize"
       ? ai.normalizeContextOrganizeResponse(result, payload)
-      : ai.normalizePlannerResponse(result);
+      : ai.normalizePlannerResponse(result, payload);
     const questions = removeAnsweredQuestions(normalized.questions, payload.clarifications);
     const { filtered, skipped } = filterExistingTaskProposals(normalized.proposedTasks, payload);
     const warnings = [...normalized.warnings];
     if (skipped) {
       warnings.push(`${skipped} existing task${skipped === 1 ? " was" : "s were"} returned by AI and skipped.`);
+    }
+    const preparedTasks = prepareProposedTasksForReview(filtered, payload.scheduling.canPlanDay);
+    if (preparedTasks.overflowCount) {
+      warnings.push(`${preparedTasks.overflowCount} task${preparedTasks.overflowCount === 1 ? " was" : "s were"} kept in the backlog to keep the suggested day within 8 hours and the available calendar range.`);
     }
     const mergeReview = mode === "context_organize"
       ? normalizeMergeSuggestionsForReview(normalized.mergeSuggestions)
@@ -2283,7 +2398,7 @@ async function analyzeDump(options = {}) {
       questions,
       priorityUpdates: normalized.priorityUpdates,
       answers: {},
-      proposedTasks: filtered.map((task) => ({
+      proposedTasks: preparedTasks.proposals.map((task) => ({
         ...task,
         accepted: true,
       })),
@@ -2387,7 +2502,7 @@ async function requestLocalAI(payload) {
   const parsed = ai.extractJson(content);
   if (payload.mode === "task_breakdown") return ai.normalizeBreakdownResponse(parsed);
   if (payload.mode === "context_organize") return ai.normalizeContextOrganizeResponse(parsed, payload);
-  return ai.normalizePlannerResponse(parsed);
+  return ai.normalizePlannerResponse(parsed, payload);
 }
 
 async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
@@ -2474,8 +2589,11 @@ function applyReviewDraft() {
     return;
   }
   const accepted = (draft.proposedTasks || []).filter((task) => task.accepted && task.title.trim());
+  let plannedCount = 0;
+  let backlogCount = 0;
   accepted.forEach((proposal) => {
-    const parent = createTask(proposal.title.trim(), proposal.minutes, "task", {
+    const destination = proposal.destination === "day" ? "day" : "backlog";
+    const overrides = {
       priorityScore: proposal.priorityScore,
       priorityReason: proposal.priorityReason,
       urgency: proposal.urgency,
@@ -2485,8 +2603,22 @@ function applyReviewDraft() {
         title: subtask.title,
         minutes: subtask.minutes,
       })),
-    });
-    state.backlog.push(parent);
+    };
+    if (destination === "day") {
+      const suggestedStart = parseProposedStartMinutes(proposal.startTime);
+      overrides.startMinutes = suggestedStart === null
+        ? findNextTaskStart(proposal.minutes)
+        : clampStartMinutes(suggestedStart, proposal.minutes);
+      overrides.hasExplicitStart = true;
+    }
+    const parent = createTask(proposal.title.trim(), proposal.minutes, "task", overrides);
+    if (destination === "day") {
+      state.tasks.push(parent);
+      plannedCount += 1;
+    } else {
+      state.backlog.push(parent);
+      backlogCount += 1;
+    }
   });
   if (draft.type === "context_organize") {
     applyMergeSuggestions(draft);
@@ -2500,7 +2632,10 @@ function applyReviewDraft() {
   const mergeCount = draft.type === "context_organize"
     ? (draft.mergeSuggestions || []).filter((suggestion) => suggestion.accepted).length
     : 0;
-  const taskLabel = `${accepted.length} task${accepted.length === 1 ? "" : "s"} added`;
+  const taskParts = [];
+  if (plannedCount) taskParts.push(`${plannedCount} task${plannedCount === 1 ? "" : "s"} planned`);
+  if (backlogCount) taskParts.push(`${backlogCount} task${backlogCount === 1 ? "" : "s"} added to backlog`);
+  const taskLabel = taskParts.join(", ") || "No tasks added";
   const mergeLabel = mergeCount
     ? `, ${mergeCount} merge${mergeCount === 1 ? "" : "s"} applied`
     : "";
