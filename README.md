@@ -139,11 +139,14 @@ The planner supports two AI targets:
   the Vercel environment.
 - `Local OpenAI-compatible`: the browser calls `{baseUrl}/chat/completions` directly. The local server must allow browser CORS. This mode is intended for local demos with servers such as LM Studio, Ollama-compatible OpenAI endpoints, or other OpenAI-compatible local gateways.
 
-AI output is always reviewed before it is applied. Brain dumps create immediately
-usable draft backlog tasks and may show up to two optional clarifications when an
-answer would materially improve the proposal. Answering one enables a separate
-refinement action; it never blocks applying the initial draft. Detailed task steps
-remain an explicit “Help me get started” action for the selected task.
+AI output is always reviewed before it is applied. When the day plan is empty,
+brain dumps propose start times for up to eight hours of tasks and keep overflow
+in the backlog; when the day already has tasks, new proposals stay in the backlog.
+The review drawer lets the user change each destination and start time before
+applying. Drafts may show up to two optional clarifications when an answer would
+materially improve the proposal. Answering one enables a separate refinement
+action; it never blocks applying the initial draft. Detailed task steps remain an
+explicit “Help me get started” action for the selected task.
 If hosted AI is not configured, the account and sync features continue working;
 hosted AI controls are disabled instead of producing missing-key errors.
 

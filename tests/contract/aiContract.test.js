@@ -61,6 +61,32 @@ test("context organize uses the same streamlined capture guidance", () => {
   assert.match(messages[0].content, /leave routine decomposition for the task-breakdown feature/i);
 });
 
+test("planner prompt requests reviewable scheduling only for an empty day", () => {
+  const messages = ai.buildPlannerMessages({
+    mode: "brain_dump",
+    input: "Plan my writing and errands.",
+    currentTasks: [],
+    scheduling: {
+      canPlanDay: true,
+      dayStartTime: "04:00",
+      dayEndTime: "24:00",
+      preferredStartTime: "08:00",
+      maxPlannedMinutes: 480,
+    },
+  });
+
+  assert.match(messages[0].content, /non-overlapping day plan/i);
+  assert.match(messages[0].content, /overflow or less important work in the backlog/i);
+  const request = JSON.parse(messages[1].content);
+  assert.deepEqual(request.scheduling, {
+    canPlanDay: true,
+    dayStartTime: "04:00",
+    dayEndTime: "24:00",
+    preferredStartTime: "08:00",
+    maxPlannedMinutes: 480,
+  });
+});
+
 test("planner normalization accepts existing task aliases", () => {
   const normalized = ai.normalizePlannerResponse({
     tasks: [
@@ -79,6 +105,35 @@ test("planner normalization accepts existing task aliases", () => {
   assert.equal(normalized.proposedTasks[0].minutes, 45);
   assert.equal(normalized.proposedTasks[0].priorityScore, 82);
   assert.equal(normalized.proposedTasks[0].subtasks[0].title, "Draft bullets");
+});
+
+test("planner normalization defaults weak empty-day proposals to the day and protects non-empty days", () => {
+  const response = {
+    proposedTasks: [{
+      title: "Prepare weekly update",
+      minutes: 45,
+      priorityScore: 82,
+      priorityReason: "Leadership needs the summary.",
+      urgency: 4,
+      impact: 4,
+      destination: "calendar",
+      startTime: "9:05",
+      subtasks: [],
+    }],
+  };
+  const emptyDay = ai.normalizePlannerResponse(response, {
+    currentTasks: [],
+    scheduling: { canPlanDay: true },
+  });
+  assert.equal(emptyDay.proposedTasks[0].destination, "day");
+  assert.equal(emptyDay.proposedTasks[0].startTime, "09:05");
+
+  const occupiedDay = ai.normalizePlannerResponse(response, {
+    currentTasks: [{ id: "existing" }],
+    scheduling: { canPlanDay: true },
+  });
+  assert.equal(occupiedDay.proposedTasks[0].destination, "backlog");
+  assert.equal(occupiedDay.proposedTasks[0].startTime, "");
 });
 
 test("planner normalization limits follow-up questions to two", () => {

@@ -3,6 +3,7 @@ const ID_COUNTER_KEY = "overrun_lite_id_counter";
 const SETTINGS_KEY = "overrun_lite_ai_settings";
 const REVIEW_KEY = "overrun_lite_review_draft";
 const THEME_KEY = "overrun_lite_theme";
+const TIMER_KEY = "overrun_lite_task_timer";
 const memoryStore = {};
 const DEFAULT_MINUTES = 60;
 const MIN_MINUTES = 10;
@@ -16,6 +17,8 @@ const DAY_END_HOUR = 24;
 const DAY_START_MINUTES = (DAY_START_HOUR - STORED_TIME_ORIGIN_HOUR) * 60;
 const DAY_END_MINUTES = (DAY_END_HOUR - STORED_TIME_ORIGIN_HOUR) * 60;
 const DAY_DURATION_MINUTES = (DAY_END_HOUR - DAY_START_HOUR) * 60;
+const DEFAULT_AI_DAY_START_MINUTES = 0;
+const MAX_AI_DAY_PLAN_MINUTES = 8 * 60;
 const MOVE_STEP_MINUTES = 5;
 const COLUMN_OVERLAP_MINUTES = 15;
 const COMPACT_OVERLAP_OFFSET_PX = 12;
@@ -30,6 +33,7 @@ const ai = window.OverrunAI;
 const cloud = window.OverrunCloud;
 let activeStorageKey = STORAGE_KEY;
 let activeReviewKey = REVIEW_KEY;
+let activeTimerKey = TIMER_KEY;
 let activeUserId = null;
 let suppressCloudSave = false;
 let cloudCapabilities = { authEnabled: false, hostedAvailable: false };
@@ -352,22 +356,25 @@ function getPlannerState() {
 
 function applyPlannerState(plannerState) {
   const source = plannerState && typeof plannerState === "object" ? plannerState : {};
+  resetTimerRuntime();
   suppressCloudSave = true;
   state.tasks = Array.isArray(source.tasks) ? source.tasks.map(normalizeTask) : [];
   assignSequentialStartsWhenMissing(state.tasks);
   state.backlog = Array.isArray(source.backlog) ? source.backlog.map(normalizeTask) : [];
   resetTaskEditorState();
-  pauseTimer();
   closeDrawer(els.taskDetailsPanel);
   saveState();
   suppressCloudSave = false;
+  restoreTimerState();
   render();
 }
 
 function activateAccount(userId, plannerState) {
+  pauseTimer();
   activeUserId = userId;
   activeStorageKey = `${STORAGE_KEY}:${userId}`;
   activeReviewKey = `${REVIEW_KEY}:${userId}`;
+  activeTimerKey = `${TIMER_KEY}:${userId}`;
   state.reviewDraft = readJson(activeReviewKey, null);
   applyPlannerState(plannerState);
 }
@@ -375,13 +382,16 @@ function activateAccount(userId, plannerState) {
 function activateGuest() {
   cancelInitialSyncChoice();
   if (activeUserId) {
+    pauseTimer();
     safeRemove(`${STORAGE_KEY}:${activeUserId}`);
     safeRemove(`${REVIEW_KEY}:${activeUserId}`);
   }
   activeUserId = null;
   activeStorageKey = STORAGE_KEY;
   activeReviewKey = REVIEW_KEY;
+  activeTimerKey = TIMER_KEY;
   loadState();
+  if (!timerState.activeId) restoreTimerState();
   render();
 }
 
@@ -571,7 +581,13 @@ function normalizeTask(task) {
   const source = task && typeof task === "object" ? task : {};
   const title = String(source.name || source.title || "Untitled").trim() || "Untitled";
   const minutes = clampNumber(source.minutes, MIN_MINUTES, 480, DEFAULT_MINUTES);
-  const elapsedMinutes = clampNumber(source.elapsedMinutes, 0, minutes, 0);
+  const legacyElapsedMinutes = clampNumber(source.elapsedMinutes, 0, minutes, 0);
+  const elapsedSeconds = clampNumber(
+    source.elapsedSeconds,
+    0,
+    minutes * 60,
+    legacyElapsedMinutes * 60
+  );
   return {
     id: String(source.id || createId()),
     name: title,
@@ -584,7 +600,8 @@ function normalizeTask(task) {
       0
     ),
     hasExplicitStart: source.startMinutes !== undefined && source.startMinutes !== null,
-    elapsedMinutes,
+    elapsedMinutes: Math.floor(elapsedSeconds / 60),
+    elapsedSeconds,
     completed: Boolean(source.completed),
     completedAt: isValidDateString(source.completedAt) ? source.completedAt : null,
     priorityScore: clampNumber(source.priorityScore, 1, 100, 50),
@@ -739,6 +756,7 @@ function archiveCompletedTask(id) {
   task.completed = true;
   task.completedAt = new Date().toISOString();
   task.elapsedMinutes = task.minutes;
+  task.elapsedSeconds = task.minutes * 60;
   if (timerState.activeId === id) {
     pauseTimer();
   }
@@ -759,6 +777,7 @@ function restoreCompletedTask(id) {
   task.completed = false;
   task.completedAt = null;
   task.elapsedMinutes = 0;
+  task.elapsedSeconds = 0;
   sortBacklogByPriority();
   saveState();
   renderBacklog();
@@ -773,6 +792,7 @@ function setElapsedMinutes(id, minutes) {
     return;
   }
   task.elapsedMinutes = next;
+  task.elapsedSeconds = next * 60;
   task.completed = false;
   task.completedAt = null;
   saveState();
@@ -818,7 +838,7 @@ function parseClockTime(value, fallback = 0) {
 }
 
 function getLiveRemainingSeconds(task) {
-  const baseSeconds = Math.max(0, task.minutes * 60 - task.elapsedMinutes * 60);
+  const baseSeconds = Math.max(0, task.minutes * 60 - task.elapsedSeconds);
   if (timerState.activeId !== task.id || !timerState.intervalId) {
     return baseSeconds;
   }
@@ -826,48 +846,141 @@ function getLiveRemainingSeconds(task) {
   return Math.max(0, baseSeconds - extraSeconds);
 }
 
+function resetTimerRuntime() {
+  if (timerState.intervalId) {
+    clearInterval(timerState.intervalId);
+  }
+  timerState.activeId = null;
+  timerState.intervalId = null;
+  timerState.lastTick = 0;
+  timerState.remainderMs = 0;
+}
+
+function saveTimerSession() {
+  if (!timerState.activeId || !timerState.intervalId) {
+    safeRemove(activeTimerKey);
+    return;
+  }
+  safeSet(activeTimerKey, JSON.stringify({
+    activeId: timerState.activeId,
+    lastTick: timerState.lastTick,
+    remainderMs: timerState.remainderMs,
+  }));
+}
+
+function advanceActiveTimer(now = Date.now()) {
+  if (!timerState.activeId) return { task: null, minutesAdded: 0 };
+  const task = state.tasks.find((item) => item.id === timerState.activeId);
+  if (!task) return { task: null, minutesAdded: 0 };
+  const delta = Math.max(0, now - timerState.lastTick);
+  timerState.lastTick = now;
+  timerState.remainderMs += delta;
+  const minutesToAdd = Math.floor(timerState.remainderMs / 60000);
+  if (!minutesToAdd) return { task, minutesAdded: 0 };
+
+  const previousSeconds = task.elapsedSeconds;
+  task.elapsedSeconds = Math.min(
+    task.minutes * 60,
+    task.elapsedSeconds + minutesToAdd * 60
+  );
+  task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
+  timerState.remainderMs -= minutesToAdd * 60000;
+  return {
+    task,
+    minutesAdded: Math.floor((task.elapsedSeconds - previousSeconds) / 60),
+  };
+}
+
+function commitTimerRemainder(task) {
+  if (!task) return false;
+  const secondsToAdd = Math.floor(timerState.remainderMs / 1000);
+  if (!secondsToAdd) return false;
+  const previousSeconds = task.elapsedSeconds;
+  task.elapsedSeconds = Math.min(task.minutes * 60, task.elapsedSeconds + secondsToAdd);
+  task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
+  timerState.remainderMs -= secondsToAdd * 1000;
+  return task.elapsedSeconds !== previousSeconds;
+}
+
+function renderActiveTimer() {
+  if (!timerState.activeId) return;
+  const task = state.tasks.find((item) => item.id === timerState.activeId);
+  if (!task) return;
+  const block = Array.from(els.calendarBlocks.querySelectorAll(".calendar-block"))
+    .find((item) => item.dataset.id === task.id);
+  const time = block && block.querySelector(".calendar-block-time");
+  if (time) time.textContent = `${formatTimer(getLiveRemainingSeconds(task))} left`;
+}
+
+function restoreTimerState() {
+  resetTimerRuntime();
+  const session = readJson(activeTimerKey, null);
+  const activeId = session && String(session.activeId || "");
+  const task = activeId && state.tasks.find((item) => item.id === activeId);
+  if (!task || task.completed || task.elapsedSeconds >= task.minutes * 60) {
+    safeRemove(activeTimerKey);
+    return;
+  }
+
+  const storedLastTick = Number(session.lastTick);
+  timerState.activeId = activeId;
+  timerState.lastTick = Number.isFinite(storedLastTick) && storedLastTick > 0
+    ? storedLastTick
+    : Date.now();
+  timerState.remainderMs = clampNumber(session.remainderMs, 0, 59999, 0);
+  const { minutesAdded } = advanceActiveTimer();
+  if (task.elapsedSeconds >= task.minutes * 60) {
+    resetTimerRuntime();
+    safeRemove(activeTimerKey);
+    archiveCompletedTask(task.id);
+    return;
+  }
+  timerState.intervalId = setInterval(tickTimer, 1000);
+  if (minutesAdded) saveState();
+  saveTimerSession();
+}
+
 function startTimer(id) {
+  const task = state.tasks.find((item) => item.id === id);
+  if (!task || task.completed || task.elapsedSeconds >= task.minutes * 60) return;
+  if (timerState.activeId === id && timerState.intervalId) return;
   if (timerState.activeId && timerState.activeId !== id) {
     pauseTimer();
   }
   timerState.activeId = id;
   timerState.lastTick = Date.now();
-  if (timerState.intervalId) {
-    clearInterval(timerState.intervalId);
-  }
+  timerState.remainderMs = 0;
   timerState.intervalId = setInterval(tickTimer, 1000);
+  saveTimerSession();
   renderCalendar();
 }
 
 function pauseTimer() {
-  if (timerState.intervalId) {
-    clearInterval(timerState.intervalId);
-  }
-  timerState.intervalId = null;
-  timerState.activeId = null;
-  timerState.remainderMs = 0;
+  const { task, minutesAdded } = advanceActiveTimer();
+  const secondsAdded = commitTimerRemainder(task);
+  resetTimerRuntime();
+  safeRemove(activeTimerKey);
+  if (task && (minutesAdded || secondsAdded)) saveState();
   renderCalendar();
 }
 
 function tickTimer() {
-  if (!timerState.activeId) return;
-  const task = state.tasks.find((item) => item.id === timerState.activeId);
-  if (!task) return;
-  const now = Date.now();
-  const delta = now - timerState.lastTick;
-  timerState.lastTick = now;
-  timerState.remainderMs += delta;
-  const minutesToAdd = Math.floor(timerState.remainderMs / 60000);
-  renderCalendar();
-  if (!minutesToAdd) return;
-  timerState.remainderMs -= minutesToAdd * 60000;
-  task.elapsedMinutes = Math.min(task.minutes, task.elapsedMinutes + minutesToAdd);
-  if (task.elapsedMinutes >= task.minutes) {
+  const { task, minutesAdded } = advanceActiveTimer();
+  if (!task) {
+    pauseTimer();
+    return;
+  }
+  if (task.elapsedSeconds >= task.minutes * 60) {
     archiveCompletedTask(task.id);
     return;
   }
-  saveState();
-  renderCalendar();
+  if (minutesAdded) {
+    saveState();
+    saveTimerSession();
+    renderCalendar();
+    return;
+  }
+  renderActiveTimer();
 }
 
 function updateDayTimerDisplay() {
@@ -1594,7 +1707,17 @@ function syncTaskEditorDraftFromFields({ validate = false } = {}) {
 
   task.name = title;
   task.minutes = clampNumber(els.detailTaskDuration.value, MIN_MINUTES, 480, task.minutes);
-  task.elapsedMinutes = clampNumber(els.detailTaskProgress.value, 0, task.minutes, task.elapsedMinutes);
+  const nextElapsedMinutes = clampNumber(
+    els.detailTaskProgress.value,
+    0,
+    task.minutes,
+    task.elapsedMinutes
+  );
+  if (nextElapsedMinutes !== task.elapsedMinutes) {
+    task.elapsedSeconds = nextElapsedMinutes * 60;
+  }
+  task.elapsedMinutes = nextElapsedMinutes;
+  task.elapsedSeconds = Math.min(task.elapsedSeconds, task.minutes * 60);
   task.startMinutes = clampStartMinutes(
     parseClockTime(els.detailTaskStart.value, task.startMinutes),
     task.minutes
@@ -1772,6 +1895,7 @@ function renderReviewTasks(draft) {
   proposedTasks.forEach((task, index) => {
     const card = document.createElement("article");
     card.className = "proposal-card";
+    card.dataset.testid = "task-proposal";
     if (!task.accepted) card.classList.add("muted-card");
 
     const accept = document.createElement("input");
@@ -1797,6 +1921,35 @@ function renderReviewTasks(draft) {
     });
     const priority = createNumberInput(task.priorityScore, 1, 100, (value) => {
       task.priorityScore = value;
+      saveReviewDraft();
+    });
+
+    const destination = document.createElement("select");
+    destination.dataset.testid = "proposal-destination";
+    destination.append(
+      new Option("Day planner", "day"),
+      new Option("Backlog", "backlog")
+    );
+    destination.value = task.destination === "day" ? "day" : "backlog";
+    destination.addEventListener("change", () => {
+      task.destination = destination.value;
+      if (task.destination === "day" && !task.startTime) {
+        task.startTime = formatClockTime(DEFAULT_AI_DAY_START_MINUTES);
+      }
+      saveReviewDraft();
+      renderReviewTasks(draft);
+    });
+
+    const startTime = document.createElement("input");
+    startTime.type = "time";
+    startTime.min = formatClockTime(DAY_START_MINUTES);
+    startTime.max = formatClockTime(DAY_END_MINUTES - MIN_MINUTES);
+    startTime.step = String(MOVE_STEP_MINUTES * 60);
+    startTime.value = task.startTime || "";
+    startTime.disabled = task.destination !== "day";
+    startTime.dataset.testid = "proposal-start-time";
+    startTime.addEventListener("input", () => {
+      task.startTime = startTime.value;
       saveReviewDraft();
     });
 
@@ -1845,6 +1998,8 @@ function renderReviewTasks(draft) {
       makeField("Accept", accept),
       makeField("Task", title),
       makeField("Minutes", minutes),
+      makeField("Destination", destination),
+      makeField("Start time", startTime),
       makeField("Priority", priority),
       makeField("Reason", reason)
     );
@@ -2123,6 +2278,13 @@ function createPlannerPayload(mode = "brain_dump", options = {}) {
     clarifications: buildClarifications(refinementDraft),
     currentTasks: state.tasks.map(summarizeTaskForAI),
     currentBacklog: state.backlog.filter((task) => !task.completed).map(summarizeTaskForAI),
+    scheduling: {
+      canPlanDay: state.tasks.length === 0,
+      dayStartTime: formatClockTime(DAY_START_MINUTES),
+      dayEndTime: formatClockTime(DAY_END_MINUTES),
+      preferredStartTime: formatClockTime(DEFAULT_AI_DAY_START_MINUTES),
+      maxPlannedMinutes: MAX_AI_DAY_PLAN_MINUTES,
+    },
   };
 }
 
@@ -2218,6 +2380,76 @@ function filterExistingTaskProposals(proposedTasks, payload) {
   return { filtered, skipped };
 }
 
+function parseProposedStartMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  const parsed = (hours - STORED_TIME_ORIGIN_HOUR) * 60 + minutes;
+  const snapped = Math.round(parsed / MOVE_STEP_MINUTES) * MOVE_STEP_MINUTES;
+  return snapped >= DAY_START_MINUTES && snapped < DAY_END_MINUTES ? snapped : null;
+}
+
+function proposalSlotIsOpen(startMinutes, duration, intervals) {
+  const endMinutes = startMinutes + duration;
+  return intervals.every((interval) =>
+    endMinutes <= interval.startMinutes || startMinutes >= interval.endMinutes
+  );
+}
+
+function findProposalStartMinutes(preferredStart, duration, intervals) {
+  const latestStart = DAY_END_MINUTES - duration;
+  if (latestStart < DAY_START_MINUTES) return null;
+  const searchStarts = [preferredStart, DEFAULT_AI_DAY_START_MINUTES, DAY_START_MINUTES]
+    .filter((value, index, values) => Number.isFinite(value) && values.indexOf(value) === index);
+
+  for (const searchStart of searchStarts) {
+    const firstCandidate = Math.max(DAY_START_MINUTES, searchStart);
+    for (let candidate = firstCandidate; candidate <= latestStart; candidate += MOVE_STEP_MINUTES) {
+      if (proposalSlotIsOpen(candidate, duration, intervals)) return candidate;
+    }
+  }
+  return null;
+}
+
+function prepareProposedTasksForReview(proposedTasks, canPlanDay) {
+  const intervals = [];
+  let plannedMinutes = 0;
+  let overflowCount = 0;
+  const proposals = proposedTasks.map((task) => {
+    const proposal = { ...task };
+    if (!canPlanDay || proposal.destination === "backlog") {
+      proposal.destination = "backlog";
+      return proposal;
+    }
+
+    if (plannedMinutes + proposal.minutes > MAX_AI_DAY_PLAN_MINUTES) {
+      proposal.destination = "backlog";
+      overflowCount += 1;
+      return proposal;
+    }
+
+    const preferredStart = parseProposedStartMinutes(proposal.startTime);
+    const startMinutes = findProposalStartMinutes(preferredStart, proposal.minutes, intervals);
+    if (startMinutes === null) {
+      proposal.destination = "backlog";
+      overflowCount += 1;
+      return proposal;
+    }
+
+    proposal.destination = "day";
+    proposal.startTime = formatClockTime(startMinutes);
+    plannedMinutes += proposal.minutes;
+    intervals.push({
+      startMinutes,
+      endMinutes: startMinutes + proposal.minutes,
+    });
+    return proposal;
+  });
+  return { proposals, overflowCount };
+}
+
 function findTaskById(taskId) {
   return [...state.tasks, ...state.backlog].find((item) => item.id === taskId);
 }
@@ -2261,12 +2493,16 @@ async function analyzeDump(options = {}) {
     const result = await requestAIPlan(payload);
     const normalized = mode === "context_organize"
       ? ai.normalizeContextOrganizeResponse(result, payload)
-      : ai.normalizePlannerResponse(result);
+      : ai.normalizePlannerResponse(result, payload);
     const questions = removeAnsweredQuestions(normalized.questions, payload.clarifications);
     const { filtered, skipped } = filterExistingTaskProposals(normalized.proposedTasks, payload);
     const warnings = [...normalized.warnings];
     if (skipped) {
       warnings.push(`${skipped} existing task${skipped === 1 ? " was" : "s were"} returned by AI and skipped.`);
+    }
+    const preparedTasks = prepareProposedTasksForReview(filtered, payload.scheduling.canPlanDay);
+    if (preparedTasks.overflowCount) {
+      warnings.push(`${preparedTasks.overflowCount} task${preparedTasks.overflowCount === 1 ? " was" : "s were"} kept in the backlog to keep the suggested day within 8 hours and the available calendar range.`);
     }
     const mergeReview = mode === "context_organize"
       ? normalizeMergeSuggestionsForReview(normalized.mergeSuggestions)
@@ -2283,7 +2519,7 @@ async function analyzeDump(options = {}) {
       questions,
       priorityUpdates: normalized.priorityUpdates,
       answers: {},
-      proposedTasks: filtered.map((task) => ({
+      proposedTasks: preparedTasks.proposals.map((task) => ({
         ...task,
         accepted: true,
       })),
@@ -2387,7 +2623,7 @@ async function requestLocalAI(payload) {
   const parsed = ai.extractJson(content);
   if (payload.mode === "task_breakdown") return ai.normalizeBreakdownResponse(parsed);
   if (payload.mode === "context_organize") return ai.normalizeContextOrganizeResponse(parsed, payload);
-  return ai.normalizePlannerResponse(parsed);
+  return ai.normalizePlannerResponse(parsed, payload);
 }
 
 async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
@@ -2474,8 +2710,11 @@ function applyReviewDraft() {
     return;
   }
   const accepted = (draft.proposedTasks || []).filter((task) => task.accepted && task.title.trim());
+  let plannedCount = 0;
+  let backlogCount = 0;
   accepted.forEach((proposal) => {
-    const parent = createTask(proposal.title.trim(), proposal.minutes, "task", {
+    const destination = proposal.destination === "day" ? "day" : "backlog";
+    const overrides = {
       priorityScore: proposal.priorityScore,
       priorityReason: proposal.priorityReason,
       urgency: proposal.urgency,
@@ -2485,8 +2724,22 @@ function applyReviewDraft() {
         title: subtask.title,
         minutes: subtask.minutes,
       })),
-    });
-    state.backlog.push(parent);
+    };
+    if (destination === "day") {
+      const suggestedStart = parseProposedStartMinutes(proposal.startTime);
+      overrides.startMinutes = suggestedStart === null
+        ? findNextTaskStart(proposal.minutes)
+        : clampStartMinutes(suggestedStart, proposal.minutes);
+      overrides.hasExplicitStart = true;
+    }
+    const parent = createTask(proposal.title.trim(), proposal.minutes, "task", overrides);
+    if (destination === "day") {
+      state.tasks.push(parent);
+      plannedCount += 1;
+    } else {
+      state.backlog.push(parent);
+      backlogCount += 1;
+    }
   });
   if (draft.type === "context_organize") {
     applyMergeSuggestions(draft);
@@ -2500,7 +2753,10 @@ function applyReviewDraft() {
   const mergeCount = draft.type === "context_organize"
     ? (draft.mergeSuggestions || []).filter((suggestion) => suggestion.accepted).length
     : 0;
-  const taskLabel = `${accepted.length} task${accepted.length === 1 ? "" : "s"} added`;
+  const taskParts = [];
+  if (plannedCount) taskParts.push(`${plannedCount} task${plannedCount === 1 ? "" : "s"} planned`);
+  if (backlogCount) taskParts.push(`${backlogCount} task${backlogCount === 1 ? "" : "s"} added to backlog`);
+  const taskLabel = taskParts.join(", ") || "No tasks added";
   const mergeLabel = mergeCount
     ? `, ${mergeCount} merge${mergeCount === 1 ? "" : "s"} applied`
     : "";
@@ -2722,7 +2978,8 @@ function setupDragAndResize() {
       dragState.startMinutes + deltaMinutes
     );
     task.minutes = nextMinutes;
-    task.elapsedMinutes = Math.min(task.elapsedMinutes, task.minutes);
+    task.elapsedSeconds = Math.min(task.elapsedSeconds, task.minutes * 60);
+    task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
     saveState();
     renderCalendar();
   });
@@ -3007,6 +3264,7 @@ function serializeTask(task) {
     startTime: formatClockTime(task.startMinutes),
     hasExplicitStart: task.hasExplicitStart,
     elapsedMinutes: task.elapsedMinutes,
+    elapsedSeconds: task.elapsedSeconds,
     completed: task.completed,
     completedAt: task.completedAt,
     priorityScore: task.priorityScore,
@@ -3218,6 +3476,7 @@ function buildDayReport() {
 async function boot() {
   setupTheme();
   loadState();
+  restoreTimerState();
   setupEvents();
   render();
   setupDragAndResize();

@@ -7,6 +7,7 @@ const {
   normalizeClarifications,
   normalizeContextOrganizeResponse,
   normalizePlannerResponse,
+  normalizeSchedulingContext,
   plannerResponseSchema,
 } = require("../aiContract");
 const {
@@ -141,13 +142,20 @@ function normalizeRequestBody(body) {
   if (!String(payload.input || "").trim()) {
     throw badRequest("Input is required.");
   }
+  const currentTasks = Array.isArray(payload.currentTasks) ? payload.currentTasks : [];
+  const currentBacklog = Array.isArray(payload.currentBacklog) ? payload.currentBacklog : [];
+  const scheduling = normalizeSchedulingContext({
+    scheduling: payload.scheduling,
+    currentTasks,
+  });
   return {
     mode: payload.mode,
     input: String(payload.input),
     clarifications: normalizeClarifications(payload.clarifications),
     answers: payload.answers && typeof payload.answers === "object" ? payload.answers : {},
-    currentTasks: Array.isArray(payload.currentTasks) ? payload.currentTasks : [],
-    currentBacklog: Array.isArray(payload.currentBacklog) ? payload.currentBacklog : [],
+    currentTasks,
+    currentBacklog,
+    scheduling,
   };
 }
 
@@ -164,7 +172,7 @@ async function requestPlanner(payload, config) {
     const parsed = parseProviderJson(response);
     if (payload.mode === "task_breakdown") return normalizeBreakdownResponse(parsed);
     if (payload.mode === "context_organize") return normalizeContextOrganizeResponse(parsed, payload);
-    return normalizePlannerResponse(parsed);
+    return normalizePlannerResponse(parsed, payload);
   } catch (err) {
     err.providerCompleted = providerCompleted;
     throw err;

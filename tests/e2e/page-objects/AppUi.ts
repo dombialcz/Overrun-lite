@@ -13,6 +13,7 @@ const STORAGE_KEYS = [
   "overrun_lite_id_counter",
   "overrun_lite_ai_settings",
   "overrun_lite_review_draft",
+  "overrun_lite_task_timer",
   "overrun_lite_theme",
 ];
 
