@@ -123,6 +123,36 @@ test("existing subtask edits are draft-only until Save", async ({ ui }) => {
   await expect(ui.calendar.block(0).getByTestId("subtask-chip")).toHaveText("Sub 1/2");
 });
 
+test("deleting an edited task requires confirmation", async ({ ui }) => {
+  await ui.calendar.addTask("Keep unless confirmed");
+  await ui.calendar.openTask(0);
+
+  ui.page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Delete this task? This action cannot be undone.");
+    await dialog.dismiss();
+  });
+  await ui.page.getByTestId("detail-delete").click();
+
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "false");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  let stored = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
+  );
+  expect(stored.tasks).toHaveLength(1);
+
+  ui.page.once("dialog", async (dialog) => {
+    await dialog.accept();
+  });
+  await ui.page.getByTestId("detail-delete").click();
+
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.blocks()).toHaveCount(0);
+  stored = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
+  );
+  expect(stored.tasks).toEqual([]);
+});
+
 test("open backlog items share the editor without being picked up", async ({ ui }) => {
   await ui.calendar.addTask("Backlog candidate");
   await ui.calendar.openTask(0);
