@@ -1650,6 +1650,8 @@ function removeSelectedTask() {
   const collection = getTaskCollection(taskEditorState.location);
   const index = collection.findIndex((task) => task.id === state.selectedTaskId);
   if (index === -1) return;
+  const itemKind = collection[index].type === "meeting" ? "meeting" : "task";
+  if (!confirm(`Delete this ${itemKind}? This action cannot be undone.`)) return;
   const [removed] = collection.splice(index, 1);
   if (timerState.activeId === removed.id) pauseTimer();
   resetTaskEditorState();
