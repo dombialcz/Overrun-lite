@@ -3,6 +3,7 @@ const ID_COUNTER_KEY = "overrun_lite_id_counter";
 const SETTINGS_KEY = "overrun_lite_ai_settings";
 const REVIEW_KEY = "overrun_lite_review_draft";
 const THEME_KEY = "overrun_lite_theme";
+const TIMER_KEY = "overrun_lite_task_timer";
 const memoryStore = {};
 const DEFAULT_MINUTES = 60;
 const MIN_MINUTES = 10;
@@ -32,6 +33,7 @@ const ai = window.OverrunAI;
 const cloud = window.OverrunCloud;
 let activeStorageKey = STORAGE_KEY;
 let activeReviewKey = REVIEW_KEY;
+let activeTimerKey = TIMER_KEY;
 let activeUserId = null;
 let suppressCloudSave = false;
 let cloudCapabilities = { authEnabled: false, hostedAvailable: false };
@@ -354,22 +356,25 @@ function getPlannerState() {
 
 function applyPlannerState(plannerState) {
   const source = plannerState && typeof plannerState === "object" ? plannerState : {};
+  resetTimerRuntime();
   suppressCloudSave = true;
   state.tasks = Array.isArray(source.tasks) ? source.tasks.map(normalizeTask) : [];
   assignSequentialStartsWhenMissing(state.tasks);
   state.backlog = Array.isArray(source.backlog) ? source.backlog.map(normalizeTask) : [];
   resetTaskEditorState();
-  pauseTimer();
   closeDrawer(els.taskDetailsPanel);
   saveState();
   suppressCloudSave = false;
+  restoreTimerState();
   render();
 }
 
 function activateAccount(userId, plannerState) {
+  pauseTimer();
   activeUserId = userId;
   activeStorageKey = `${STORAGE_KEY}:${userId}`;
   activeReviewKey = `${REVIEW_KEY}:${userId}`;
+  activeTimerKey = `${TIMER_KEY}:${userId}`;
   state.reviewDraft = readJson(activeReviewKey, null);
   applyPlannerState(plannerState);
 }
@@ -377,13 +382,16 @@ function activateAccount(userId, plannerState) {
 function activateGuest() {
   cancelInitialSyncChoice();
   if (activeUserId) {
+    pauseTimer();
     safeRemove(`${STORAGE_KEY}:${activeUserId}`);
     safeRemove(`${REVIEW_KEY}:${activeUserId}`);
   }
   activeUserId = null;
   activeStorageKey = STORAGE_KEY;
   activeReviewKey = REVIEW_KEY;
+  activeTimerKey = TIMER_KEY;
   loadState();
+  if (!timerState.activeId) restoreTimerState();
   render();
 }
 
@@ -573,7 +581,13 @@ function normalizeTask(task) {
   const source = task && typeof task === "object" ? task : {};
   const title = String(source.name || source.title || "Untitled").trim() || "Untitled";
   const minutes = clampNumber(source.minutes, MIN_MINUTES, 480, DEFAULT_MINUTES);
-  const elapsedMinutes = clampNumber(source.elapsedMinutes, 0, minutes, 0);
+  const legacyElapsedMinutes = clampNumber(source.elapsedMinutes, 0, minutes, 0);
+  const elapsedSeconds = clampNumber(
+    source.elapsedSeconds,
+    0,
+    minutes * 60,
+    legacyElapsedMinutes * 60
+  );
   return {
     id: String(source.id || createId()),
     name: title,
@@ -586,7 +600,8 @@ function normalizeTask(task) {
       0
     ),
     hasExplicitStart: source.startMinutes !== undefined && source.startMinutes !== null,
-    elapsedMinutes,
+    elapsedMinutes: Math.floor(elapsedSeconds / 60),
+    elapsedSeconds,
     completed: Boolean(source.completed),
     completedAt: isValidDateString(source.completedAt) ? source.completedAt : null,
     priorityScore: clampNumber(source.priorityScore, 1, 100, 50),
@@ -741,6 +756,7 @@ function archiveCompletedTask(id) {
   task.completed = true;
   task.completedAt = new Date().toISOString();
   task.elapsedMinutes = task.minutes;
+  task.elapsedSeconds = task.minutes * 60;
   if (timerState.activeId === id) {
     pauseTimer();
   }
@@ -761,6 +777,7 @@ function restoreCompletedTask(id) {
   task.completed = false;
   task.completedAt = null;
   task.elapsedMinutes = 0;
+  task.elapsedSeconds = 0;
   sortBacklogByPriority();
   saveState();
   renderBacklog();
@@ -775,6 +792,7 @@ function setElapsedMinutes(id, minutes) {
     return;
   }
   task.elapsedMinutes = next;
+  task.elapsedSeconds = next * 60;
   task.completed = false;
   task.completedAt = null;
   saveState();
@@ -820,7 +838,7 @@ function parseClockTime(value, fallback = 0) {
 }
 
 function getLiveRemainingSeconds(task) {
-  const baseSeconds = Math.max(0, task.minutes * 60 - task.elapsedMinutes * 60);
+  const baseSeconds = Math.max(0, task.minutes * 60 - task.elapsedSeconds);
   if (timerState.activeId !== task.id || !timerState.intervalId) {
     return baseSeconds;
   }
@@ -828,48 +846,141 @@ function getLiveRemainingSeconds(task) {
   return Math.max(0, baseSeconds - extraSeconds);
 }
 
+function resetTimerRuntime() {
+  if (timerState.intervalId) {
+    clearInterval(timerState.intervalId);
+  }
+  timerState.activeId = null;
+  timerState.intervalId = null;
+  timerState.lastTick = 0;
+  timerState.remainderMs = 0;
+}
+
+function saveTimerSession() {
+  if (!timerState.activeId || !timerState.intervalId) {
+    safeRemove(activeTimerKey);
+    return;
+  }
+  safeSet(activeTimerKey, JSON.stringify({
+    activeId: timerState.activeId,
+    lastTick: timerState.lastTick,
+    remainderMs: timerState.remainderMs,
+  }));
+}
+
+function advanceActiveTimer(now = Date.now()) {
+  if (!timerState.activeId) return { task: null, minutesAdded: 0 };
+  const task = state.tasks.find((item) => item.id === timerState.activeId);
+  if (!task) return { task: null, minutesAdded: 0 };
+  const delta = Math.max(0, now - timerState.lastTick);
+  timerState.lastTick = now;
+  timerState.remainderMs += delta;
+  const minutesToAdd = Math.floor(timerState.remainderMs / 60000);
+  if (!minutesToAdd) return { task, minutesAdded: 0 };
+
+  const previousSeconds = task.elapsedSeconds;
+  task.elapsedSeconds = Math.min(
+    task.minutes * 60,
+    task.elapsedSeconds + minutesToAdd * 60
+  );
+  task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
+  timerState.remainderMs -= minutesToAdd * 60000;
+  return {
+    task,
+    minutesAdded: Math.floor((task.elapsedSeconds - previousSeconds) / 60),
+  };
+}
+
+function commitTimerRemainder(task) {
+  if (!task) return false;
+  const secondsToAdd = Math.floor(timerState.remainderMs / 1000);
+  if (!secondsToAdd) return false;
+  const previousSeconds = task.elapsedSeconds;
+  task.elapsedSeconds = Math.min(task.minutes * 60, task.elapsedSeconds + secondsToAdd);
+  task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
+  timerState.remainderMs -= secondsToAdd * 1000;
+  return task.elapsedSeconds !== previousSeconds;
+}
+
+function renderActiveTimer() {
+  if (!timerState.activeId) return;
+  const task = state.tasks.find((item) => item.id === timerState.activeId);
+  if (!task) return;
+  const block = Array.from(els.calendarBlocks.querySelectorAll(".calendar-block"))
+    .find((item) => item.dataset.id === task.id);
+  const time = block && block.querySelector(".calendar-block-time");
+  if (time) time.textContent = `${formatTimer(getLiveRemainingSeconds(task))} left`;
+}
+
+function restoreTimerState() {
+  resetTimerRuntime();
+  const session = readJson(activeTimerKey, null);
+  const activeId = session && String(session.activeId || "");
+  const task = activeId && state.tasks.find((item) => item.id === activeId);
+  if (!task || task.completed || task.elapsedSeconds >= task.minutes * 60) {
+    safeRemove(activeTimerKey);
+    return;
+  }
+
+  const storedLastTick = Number(session.lastTick);
+  timerState.activeId = activeId;
+  timerState.lastTick = Number.isFinite(storedLastTick) && storedLastTick > 0
+    ? storedLastTick
+    : Date.now();
+  timerState.remainderMs = clampNumber(session.remainderMs, 0, 59999, 0);
+  const { minutesAdded } = advanceActiveTimer();
+  if (task.elapsedSeconds >= task.minutes * 60) {
+    resetTimerRuntime();
+    safeRemove(activeTimerKey);
+    archiveCompletedTask(task.id);
+    return;
+  }
+  timerState.intervalId = setInterval(tickTimer, 1000);
+  if (minutesAdded) saveState();
+  saveTimerSession();
+}
+
 function startTimer(id) {
+  const task = state.tasks.find((item) => item.id === id);
+  if (!task || task.completed || task.elapsedSeconds >= task.minutes * 60) return;
+  if (timerState.activeId === id && timerState.intervalId) return;
   if (timerState.activeId && timerState.activeId !== id) {
     pauseTimer();
   }
   timerState.activeId = id;
   timerState.lastTick = Date.now();
-  if (timerState.intervalId) {
-    clearInterval(timerState.intervalId);
-  }
+  timerState.remainderMs = 0;
   timerState.intervalId = setInterval(tickTimer, 1000);
+  saveTimerSession();
   renderCalendar();
 }
 
 function pauseTimer() {
-  if (timerState.intervalId) {
-    clearInterval(timerState.intervalId);
-  }
-  timerState.intervalId = null;
-  timerState.activeId = null;
-  timerState.remainderMs = 0;
+  const { task, minutesAdded } = advanceActiveTimer();
+  const secondsAdded = commitTimerRemainder(task);
+  resetTimerRuntime();
+  safeRemove(activeTimerKey);
+  if (task && (minutesAdded || secondsAdded)) saveState();
   renderCalendar();
 }
 
 function tickTimer() {
-  if (!timerState.activeId) return;
-  const task = state.tasks.find((item) => item.id === timerState.activeId);
-  if (!task) return;
-  const now = Date.now();
-  const delta = now - timerState.lastTick;
-  timerState.lastTick = now;
-  timerState.remainderMs += delta;
-  const minutesToAdd = Math.floor(timerState.remainderMs / 60000);
-  renderCalendar();
-  if (!minutesToAdd) return;
-  timerState.remainderMs -= minutesToAdd * 60000;
-  task.elapsedMinutes = Math.min(task.minutes, task.elapsedMinutes + minutesToAdd);
-  if (task.elapsedMinutes >= task.minutes) {
+  const { task, minutesAdded } = advanceActiveTimer();
+  if (!task) {
+    pauseTimer();
+    return;
+  }
+  if (task.elapsedSeconds >= task.minutes * 60) {
     archiveCompletedTask(task.id);
     return;
   }
-  saveState();
-  renderCalendar();
+  if (minutesAdded) {
+    saveState();
+    saveTimerSession();
+    renderCalendar();
+    return;
+  }
+  renderActiveTimer();
 }
 
 function updateDayTimerDisplay() {
@@ -1596,7 +1707,17 @@ function syncTaskEditorDraftFromFields({ validate = false } = {}) {
 
   task.name = title;
   task.minutes = clampNumber(els.detailTaskDuration.value, MIN_MINUTES, 480, task.minutes);
-  task.elapsedMinutes = clampNumber(els.detailTaskProgress.value, 0, task.minutes, task.elapsedMinutes);
+  const nextElapsedMinutes = clampNumber(
+    els.detailTaskProgress.value,
+    0,
+    task.minutes,
+    task.elapsedMinutes
+  );
+  if (nextElapsedMinutes !== task.elapsedMinutes) {
+    task.elapsedSeconds = nextElapsedMinutes * 60;
+  }
+  task.elapsedMinutes = nextElapsedMinutes;
+  task.elapsedSeconds = Math.min(task.elapsedSeconds, task.minutes * 60);
   task.startMinutes = clampStartMinutes(
     parseClockTime(els.detailTaskStart.value, task.startMinutes),
     task.minutes
@@ -2857,7 +2978,8 @@ function setupDragAndResize() {
       dragState.startMinutes + deltaMinutes
     );
     task.minutes = nextMinutes;
-    task.elapsedMinutes = Math.min(task.elapsedMinutes, task.minutes);
+    task.elapsedSeconds = Math.min(task.elapsedSeconds, task.minutes * 60);
+    task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
     saveState();
     renderCalendar();
   });
@@ -3142,6 +3264,7 @@ function serializeTask(task) {
     startTime: formatClockTime(task.startMinutes),
     hasExplicitStart: task.hasExplicitStart,
     elapsedMinutes: task.elapsedMinutes,
+    elapsedSeconds: task.elapsedSeconds,
     completed: task.completed,
     completedAt: task.completedAt,
     priorityScore: task.priorityScore,
@@ -3353,6 +3476,7 @@ function buildDayReport() {
 async function boot() {
   setupTheme();
   loadState();
+  restoreTimerState();
   setupEvents();
   render();
   setupDragAndResize();

@@ -60,6 +60,47 @@ test("calendar task blocks stay compact and open task details", async ({ ui }) =
   expect(ui.consoleErrors).toEqual([]);
 });
 
+test("a running task remains clickable long enough to pause from the calendar", async ({ ui }) => {
+  await ui.calendar.addTask("Pause this task");
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-toggle-timer").click();
+
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
+
+  await ui.calendar.block(0).click({ delay: 1100 });
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "false");
+  await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Pause");
+  await ui.page.getByTestId("detail-toggle-timer").click();
+
+  await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
+  const stored = await ui.page.evaluate(() => ({
+    planner: JSON.parse(localStorage.getItem("overrun_lite_state") || "{}"),
+    timer: localStorage.getItem("overrun_lite_task_timer"),
+  }));
+  expect(stored.planner.tasks[0].elapsedSeconds).toBeGreaterThanOrEqual(1);
+  expect(stored.timer).toBeNull();
+});
+
+test("a running task resumes after refresh and can be paused and restarted", async ({ ui }) => {
+  await ui.calendar.addTask("Reload this task");
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-toggle-timer").click();
+  await ui.page.waitForTimeout(1100);
+
+  await ui.page.reload();
+  await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
+  await ui.calendar.openTask(0);
+  await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Pause");
+  await ui.page.getByTestId("detail-toggle-timer").click();
+
+  await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
+  await ui.calendar.openTask(0);
+  await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Start");
+  await ui.page.getByTestId("detail-toggle-timer").click();
+  await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
+});
+
 test("completing tasks archives them immediately in newest-first Done order", async ({ ui }) => {
   await ui.calendar.addTask();
   await ui.calendar.addTask();
