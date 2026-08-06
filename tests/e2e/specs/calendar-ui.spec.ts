@@ -12,6 +12,40 @@ test("app loads without console errors", async ({ ui }) => {
   expect(ui.consoleErrors).toEqual([]);
 });
 
+test("calendar spans 04:00 through 24:00 without shifting existing task times", async ({ ui }) => {
+  const labels = ui.calendar.root.locator(".time-labels span");
+  await expect(labels).toHaveCount(21);
+  await expect(labels.first()).toHaveText("04:00");
+  await expect(labels.last()).toHaveText("24:00");
+
+  await ui.calendar.addTask("Boundary task");
+  await expect(ui.calendar.block(0)).toContainText("08:00");
+  await ui.calendar.openTask(0);
+
+  const startInput = ui.page.getByTestId("detail-task-start");
+  await expect(startInput).toHaveAttribute("min", "04:00");
+  await expect(startInput).toHaveAttribute("max", "23:50");
+  await startInput.fill("04:00");
+  await ui.taskDetails.save();
+
+  await expect(ui.calendar.block(0)).toContainText("04:00");
+  let stored = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
+  );
+  expect(stored.tasks[0].startMinutes).toBe(-240);
+
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-task-duration").fill("10");
+  await ui.page.getByTestId("detail-task-start").fill("23:50");
+  await ui.taskDetails.save();
+
+  await expect(ui.calendar.block(0)).toContainText("23:50");
+  stored = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
+  );
+  expect(stored.tasks[0].startMinutes).toBe(950);
+});
+
 test("calendar task blocks stay compact and open task details", async ({ ui }) => {
   await ui.calendar.addTask();
   await expect(ui.calendar.blocks()).toHaveCount(1);

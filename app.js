@@ -9,8 +9,13 @@ const MIN_MINUTES = 10;
 const SEGMENT_BLOCK = 30;
 const RESIZE_STEP_MINUTES = 5;
 const CALENDAR_BLOCK_MIN_HEIGHT = 56;
-const DAY_START_HOUR = 8;
-const DAY_MINUTES = 11 * 60;
+// Keep stored startMinutes anchored to 08:00 so existing schedules do not shift.
+const STORED_TIME_ORIGIN_HOUR = 8;
+const DAY_START_HOUR = 4;
+const DAY_END_HOUR = 24;
+const DAY_START_MINUTES = (DAY_START_HOUR - STORED_TIME_ORIGIN_HOUR) * 60;
+const DAY_END_MINUTES = (DAY_END_HOUR - STORED_TIME_ORIGIN_HOUR) * 60;
+const DAY_DURATION_MINUTES = (DAY_END_HOUR - DAY_START_HOUR) * 60;
 const MOVE_STEP_MINUTES = 5;
 const COLUMN_OVERLAP_MINUTES = 15;
 const COMPACT_OVERLAP_OFFSET_PX = 12;
@@ -572,7 +577,12 @@ function normalizeTask(task) {
     name: title,
     minutes,
     type: source.type === "meeting" ? "meeting" : "task",
-    startMinutes: clampNumber(source.startMinutes, 0, DAY_MINUTES - MIN_MINUTES, 0),
+    startMinutes: clampNumber(
+      source.startMinutes,
+      DAY_START_MINUTES,
+      DAY_END_MINUTES - MIN_MINUTES,
+      0
+    ),
     hasExplicitStart: source.startMinutes !== undefined && source.startMinutes !== null,
     elapsedMinutes,
     completed: Boolean(source.completed),
@@ -649,7 +659,12 @@ function findNextTaskStart(minutes) {
 }
 
 function clampStartMinutes(value, duration = MIN_MINUTES) {
-  return clampNumber(value, 0, Math.max(0, DAY_MINUTES - Math.min(duration, DAY_MINUTES)), 0);
+  return clampNumber(
+    value,
+    DAY_START_MINUTES,
+    DAY_END_MINUTES - Math.min(duration, DAY_DURATION_MINUTES),
+    0
+  );
 }
 
 function splitTask(id) {
@@ -782,7 +797,12 @@ function formatTimer(seconds) {
 }
 
 function formatClockTime(startMinutes) {
-  const totalMinutes = DAY_START_HOUR * 60 + clampNumber(startMinutes, 0, DAY_MINUTES, 0);
+  const totalMinutes = STORED_TIME_ORIGIN_HOUR * 60 + clampNumber(
+    startMinutes,
+    DAY_START_MINUTES,
+    DAY_END_MINUTES,
+    0
+  );
   const hours = Math.floor(totalMinutes / 60);
   const mins = totalMinutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
@@ -794,7 +814,7 @@ function parseClockTime(value, fallback = 0) {
   const hours = Number(match[1]);
   const mins = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(mins)) return fallback;
-  return (hours - DAY_START_HOUR) * 60 + mins;
+  return (hours - STORED_TIME_ORIGIN_HOUR) * 60 + mins;
 }
 
 function getLiveRemainingSeconds(task) {
@@ -1226,7 +1246,7 @@ function renderCalendar(options = {}) {
     }
 
     const laneWidth = 100 / layout.laneCount;
-    block.style.top = `${task.startMinutes * getPixelsPerMinute()}px`;
+    block.style.top = `${(task.startMinutes - DAY_START_MINUTES) * getPixelsPerMinute()}px`;
     if (layout.compactOffset) {
       block.style.left = `${layout.compactOffset}px`;
       block.style.width = `calc(100% - ${layout.compactOffset}px)`;
