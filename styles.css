@@ -99,9 +99,7 @@
   --group-accent: rgba(81, 53, 90, 0.76);
   --meeting-group-accent: rgba(68, 81, 122, 0.72);
   --timer-pulse: rgba(246, 170, 28, 0.3);
-  --overdue-glow: rgba(158, 43, 37, 0.48);
   --overdue-border: rgba(158, 43, 37, 0.9);
-  --progress-fill: #2a0c4e;
   --subtask-tint: rgb(132, 144, 79);
   --overlay-ink: #ffffff;
   --overlay-muted: rgba(255, 255, 255, 0.78);
@@ -210,9 +208,7 @@
   --group-accent: rgba(224, 192, 230, 0.78);
   --meeting-group-accent: rgba(157, 166, 225, 0.76);
   --timer-pulse: rgba(246, 170, 28, 0.32);
-  --overdue-glow: rgba(255, 120, 113, 0.48);
   --overdue-border: rgba(255, 174, 166, 0.86);
-  --progress-fill: linear-gradient(90deg, #c4a4cc, #8e68a0);
   --subtask-tint: rgb(86, 96, 46);
   --overlay-ink: #ffffff;
   --overlay-muted: rgba(255, 255, 255, 0.78);
@@ -806,7 +802,6 @@ summary:focus-visible {
   color: var(--task-block-ink);
 }
 
-.calendar-block .calendar-block-time,
 .calendar-block .calendar-block-meta,
 .calendar-block .split-part-label {
   color: var(--task-block-muted);
@@ -820,7 +815,7 @@ summary:focus-visible {
 
 .calendar-block-content {
   display: grid;
-  grid-template-rows: auto auto 5px;
+  grid-template-rows: auto auto;
   gap: 4px;
   min-height: 0;
   padding: 7px 10px 4px 14px;
@@ -853,7 +848,6 @@ summary:focus-visible {
   color: var(--completed-block-ink);
 }
 
-.calendar-block.completed .calendar-block-time,
 .calendar-block.completed .calendar-block-meta,
 .calendar-block.completed .split-part-label {
   color: var(--completed-block-muted);
@@ -872,7 +866,6 @@ summary:focus-visible {
   animation: timerPulse 1.8s ease-in-out infinite;
 }
 
-.calendar-block.timer-active .calendar-block-time,
 .calendar-block.timer-active .calendar-block-meta,
 .calendar-block.timer-active .split-part-label {
   color: var(--timer-block-muted);
@@ -883,32 +876,12 @@ summary:focus-visible {
   50% { box-shadow: 0 0 0 8px var(--timer-pulse); }
 }
 
-.calendar-block.overdue {
-  animation: overduePulse 1s ease-in-out infinite;
-}
-
-@keyframes overduePulse {
-  0% {
-    box-shadow: 0 0 0 transparent;
-    border-color: var(--overlap-block-border);
-  }
-  50% {
-    box-shadow: 0 0 18px var(--overdue-glow);
-    border-color: var(--overdue-border);
-  }
-  100% {
-    box-shadow: 0 0 0 transparent;
-    border-color: var(--overlap-block-border);
-  }
-}
-
 .calendar-block.meeting {
   background: var(--meeting-block-bg);
   border-color: var(--meeting-block-border);
   color: var(--meeting-block-ink);
 }
 
-.calendar-block.meeting .calendar-block-time,
 .calendar-block.meeting .calendar-block-meta,
 .calendar-block.meeting .split-part-label {
   color: var(--meeting-block-muted);
@@ -950,12 +923,6 @@ summary:focus-visible {
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.calendar-block-time {
-  font-size: 11px;
-  color: var(--muted);
   white-space: nowrap;
 }
 
@@ -1010,20 +977,6 @@ summary:focus-visible {
   line-height: 1.1;
 }
 
-.calendar-progress {
-  height: 5px;
-  border-radius: 999px;
-  background: var(--progress-track);
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.calendar-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--progress-fill);
-}
-
 .calendar-block-title[contenteditable="true"] {
   outline: 1px dashed transparent;
 }
@@ -1038,12 +991,8 @@ summary:focus-visible {
 }
 
 .calendar-block.short .calendar-block-content {
-  grid-template-rows: auto 5px;
+  grid-template-rows: auto;
   gap: 3px;
-}
-
-.calendar-block.short .calendar-progress {
-  align-self: end;
 }
 
 .calendar-block::after {

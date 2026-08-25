@@ -25,7 +25,7 @@ Overrun Lite follows the operating-system light or dark theme on a first visit.
 The always-visible theme button switches explicitly between the two and stores
 the choice in the browser-wide `overrun_lite_theme` localStorage value. Theme
 preference is not included in planner exports, cloud sync, or AI settings.
-The palette uses amethyst for primary actions and light-theme active timers,
+The palette uses amethyst for primary actions and light-theme active tasks,
 grape for selection and structure, orange for light-theme tasks and attention,
 and pale green for completion. Brown red remains the danger/conflict family and
 also gives ordinary dark-theme tasks their controlled maroon emphasis. Light

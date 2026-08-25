@@ -60,8 +60,11 @@ test("calendar task blocks stay compact and open task details", async ({ ui }) =
   expect(ui.consoleErrors).toEqual([]);
 });
 
-test("a running task remains clickable long enough to pause from the calendar", async ({ ui }) => {
-  await ui.calendar.addTask("Pause this task");
+test("Start and Stop only control the day-task emphasis", async ({ ui }) => {
+  await ui.calendar.addTask("Focus on this task");
+  await expect(ui.calendar.block(0).getByTestId("calendar-progress")).toHaveCount(0);
+  await expect(ui.calendar.block(0)).not.toContainText("left");
+
   await ui.calendar.openTask(0);
   await ui.page.getByTestId("detail-toggle-timer").click();
 
@@ -70,7 +73,7 @@ test("a running task remains clickable long enough to pause from the calendar", 
 
   await ui.calendar.block(0).click({ delay: 1100 });
   await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "false");
-  await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Pause");
+  await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Stop");
   await ui.page.getByTestId("detail-toggle-timer").click();
 
   await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
@@ -78,27 +81,87 @@ test("a running task remains clickable long enough to pause from the calendar", 
     planner: JSON.parse(localStorage.getItem("overrun_lite_state") || "{}"),
     timer: localStorage.getItem("overrun_lite_task_timer"),
   }));
-  expect(stored.planner.tasks[0].elapsedSeconds).toBeGreaterThanOrEqual(1);
+  expect(stored.planner.tasks[0].elapsedSeconds).toBe(0);
   expect(stored.timer).toBeNull();
 });
 
-test("a running task resumes after refresh and can be paused and restarted", async ({ ui }) => {
-  await ui.calendar.addTask("Reload this task");
+test("starting another task transfers the persistent emphasis", async ({ ui }) => {
+  await ui.calendar.addTask("First focus");
+  await ui.calendar.addTask("Second focus");
+
   await ui.calendar.openTask(0);
   await ui.page.getByTestId("detail-toggle-timer").click();
-  await ui.page.waitForTimeout(1100);
-
-  await ui.page.reload();
   await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
-  await ui.calendar.openTask(0);
-  await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Pause");
-  await ui.page.getByTestId("detail-toggle-timer").click();
+  await expect(ui.calendar.block(1)).not.toHaveClass(/timer-active/);
 
-  await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
-  await ui.calendar.openTask(0);
+  await ui.calendar.openTask(1);
   await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Start");
   await ui.page.getByTestId("detail-toggle-timer").click();
+  await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
+  await expect(ui.calendar.block(1)).toHaveClass(/timer-active/);
+
+  const activeBeforeReload = await ui.page.evaluate(() => {
+    const planner = JSON.parse(localStorage.getItem("overrun_lite_state") || "{}");
+    const active = JSON.parse(localStorage.getItem("overrun_lite_task_timer") || "{}");
+    return { activeId: active.activeId, secondTaskId: planner.tasks[1].id };
+  });
+  expect(activeBeforeReload.activeId).toBe(activeBeforeReload.secondTaskId);
+
+  await ui.page.reload();
+  await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
+  await expect(ui.calendar.block(1)).toHaveClass(/timer-active/);
+  await ui.calendar.openTask(1);
+  await expect(ui.page.getByTestId("detail-toggle-timer")).toHaveText("Stop");
+  await ui.page.getByTestId("detail-toggle-timer").click();
+  await expect(ui.calendar.block(1)).not.toHaveClass(/timer-active/);
+});
+
+test("an active task never completes when its estimate is reached", async ({ ui }) => {
+  await ui.page.evaluate(() => {
+    localStorage.setItem("overrun_lite_state", JSON.stringify({
+      tasks: [{
+        id: "near-estimate",
+        name: "Stay active",
+        minutes: 10,
+        startMinutes: 300,
+        elapsedSeconds: 600,
+        completed: false,
+      }],
+      backlog: [],
+    }));
+    localStorage.setItem("overrun_lite_task_timer", JSON.stringify({
+      activeId: "near-estimate",
+    }));
+  });
+  await ui.page.reload();
+  await ui.page.waitForTimeout(1100);
+
+  await expect(ui.calendar.blocks()).toHaveCount(1);
   await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
+  const stored = await ui.page.evaluate(() =>
+    JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
+  );
+  expect(stored.tasks[0]).toMatchObject({ completed: false, elapsedSeconds: 600 });
+  expect(stored.backlog).toEqual([]);
+});
+
+test("completing the active task clears focus and leaves the planner interactive", async ({ ui }) => {
+  await ui.calendar.addTask("Finish this active task");
+  await ui.calendar.addTask("Open this next");
+
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-toggle-timer").click();
+  await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
+
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-toggle-done").click();
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  await expect(ui.page.locator(".calendar-block.timer-active")).toHaveCount(0);
+
+  await ui.calendar.openTask(0);
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "false");
+  expect(ui.consoleErrors).toEqual([]);
 });
 
 test("completing tasks archives them immediately in newest-first Done order", async ({ ui }) => {

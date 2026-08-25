@@ -178,8 +178,6 @@ const els = {
 const dragState = {
   moveId: null,
   resizeId: null,
-  progressId: null,
-  progressRect: null,
   stableLaneCount: 0,
   stableLaneMap: null,
   stableTaskIds: null,
@@ -193,9 +191,6 @@ const dragState = {
 
 const timerState = {
   activeId: null,
-  intervalId: null,
-  lastTick: 0,
-  remainderMs: 0,
 };
 
 const dayTimer = {
@@ -714,6 +709,7 @@ function splitTask(id) {
     })
   );
   state.tasks.splice(taskIndex, 1, ...splitTasks);
+  if (timerState.activeId === id) clearTimerSession();
   resetTaskEditorState();
   saveState();
   render();
@@ -725,6 +721,7 @@ function pushToBacklog(id) {
   const taskIndex = state.tasks.findIndex((item) => item.id === id);
   if (taskIndex === -1) return;
   const [task] = state.tasks.splice(taskIndex, 1);
+  if (timerState.activeId === id) clearTimerSession();
   state.backlog.unshift(task);
   if (state.selectedTaskId === id) {
     resetTaskEditorState();
@@ -757,9 +754,7 @@ function archiveCompletedTask(id) {
   task.completedAt = new Date().toISOString();
   task.elapsedMinutes = task.minutes;
   task.elapsedSeconds = task.minutes * 60;
-  if (timerState.activeId === id) {
-    pauseTimer();
-  }
+  if (timerState.activeId === id) clearTimerSession();
   const firstDoneIndex = state.backlog.findIndex((item) => item.completed);
   state.backlog.splice(firstDoneIndex === -1 ? state.backlog.length : firstDoneIndex, 0, task);
   sortBacklogByPriority();
@@ -781,31 +776,6 @@ function restoreCompletedTask(id) {
   sortBacklogByPriority();
   saveState();
   renderBacklog();
-}
-
-function setElapsedMinutes(id, minutes) {
-  const task = state.tasks.find((item) => item.id === id);
-  if (!task) return;
-  const next = Math.max(0, Math.min(task.minutes, minutes));
-  if (next >= task.minutes) {
-    archiveCompletedTask(id);
-    return;
-  }
-  task.elapsedMinutes = next;
-  task.elapsedSeconds = next * 60;
-  task.completed = false;
-  task.completedAt = null;
-  saveState();
-  renderCalendar();
-}
-
-function setElapsedFromRatio(id, ratio) {
-  const task = state.tasks.find((item) => item.id === id);
-  if (!task) return;
-  const snapped =
-    Math.round((ratio * task.minutes) / RESIZE_STEP_MINUTES) *
-    RESIZE_STEP_MINUTES;
-  setElapsedMinutes(id, snapped);
 }
 
 function formatTimer(seconds) {
@@ -837,79 +807,23 @@ function parseClockTime(value, fallback = 0) {
   return (hours - STORED_TIME_ORIGIN_HOUR) * 60 + mins;
 }
 
-function getLiveRemainingSeconds(task) {
-  const baseSeconds = Math.max(0, task.minutes * 60 - task.elapsedSeconds);
-  if (timerState.activeId !== task.id || !timerState.intervalId) {
-    return baseSeconds;
-  }
-  const extraSeconds = Math.floor(timerState.remainderMs / 1000);
-  return Math.max(0, baseSeconds - extraSeconds);
+function resetTimerRuntime() {
+  timerState.activeId = null;
 }
 
-function resetTimerRuntime() {
-  if (timerState.intervalId) {
-    clearInterval(timerState.intervalId);
-  }
-  timerState.activeId = null;
-  timerState.intervalId = null;
-  timerState.lastTick = 0;
-  timerState.remainderMs = 0;
+function clearTimerSession() {
+  resetTimerRuntime();
+  safeRemove(activeTimerKey);
 }
 
 function saveTimerSession() {
-  if (!timerState.activeId || !timerState.intervalId) {
+  if (!timerState.activeId) {
     safeRemove(activeTimerKey);
     return;
   }
   safeSet(activeTimerKey, JSON.stringify({
     activeId: timerState.activeId,
-    lastTick: timerState.lastTick,
-    remainderMs: timerState.remainderMs,
   }));
-}
-
-function advanceActiveTimer(now = Date.now()) {
-  if (!timerState.activeId) return { task: null, minutesAdded: 0 };
-  const task = state.tasks.find((item) => item.id === timerState.activeId);
-  if (!task) return { task: null, minutesAdded: 0 };
-  const delta = Math.max(0, now - timerState.lastTick);
-  timerState.lastTick = now;
-  timerState.remainderMs += delta;
-  const minutesToAdd = Math.floor(timerState.remainderMs / 60000);
-  if (!minutesToAdd) return { task, minutesAdded: 0 };
-
-  const previousSeconds = task.elapsedSeconds;
-  task.elapsedSeconds = Math.min(
-    task.minutes * 60,
-    task.elapsedSeconds + minutesToAdd * 60
-  );
-  task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
-  timerState.remainderMs -= minutesToAdd * 60000;
-  return {
-    task,
-    minutesAdded: Math.floor((task.elapsedSeconds - previousSeconds) / 60),
-  };
-}
-
-function commitTimerRemainder(task) {
-  if (!task) return false;
-  const secondsToAdd = Math.floor(timerState.remainderMs / 1000);
-  if (!secondsToAdd) return false;
-  const previousSeconds = task.elapsedSeconds;
-  task.elapsedSeconds = Math.min(task.minutes * 60, task.elapsedSeconds + secondsToAdd);
-  task.elapsedMinutes = Math.floor(task.elapsedSeconds / 60);
-  timerState.remainderMs -= secondsToAdd * 1000;
-  return task.elapsedSeconds !== previousSeconds;
-}
-
-function renderActiveTimer() {
-  if (!timerState.activeId) return;
-  const task = state.tasks.find((item) => item.id === timerState.activeId);
-  if (!task) return;
-  const block = Array.from(els.calendarBlocks.querySelectorAll(".calendar-block"))
-    .find((item) => item.dataset.id === task.id);
-  const time = block && block.querySelector(".calendar-block-time");
-  if (time) time.textContent = `${formatTimer(getLiveRemainingSeconds(task))} left`;
 }
 
 function restoreTimerState() {
@@ -917,70 +831,26 @@ function restoreTimerState() {
   const session = readJson(activeTimerKey, null);
   const activeId = session && String(session.activeId || "");
   const task = activeId && state.tasks.find((item) => item.id === activeId);
-  if (!task || task.completed || task.elapsedSeconds >= task.minutes * 60) {
+  if (!task || task.completed) {
     safeRemove(activeTimerKey);
     return;
   }
 
-  const storedLastTick = Number(session.lastTick);
   timerState.activeId = activeId;
-  timerState.lastTick = Number.isFinite(storedLastTick) && storedLastTick > 0
-    ? storedLastTick
-    : Date.now();
-  timerState.remainderMs = clampNumber(session.remainderMs, 0, 59999, 0);
-  const { minutesAdded } = advanceActiveTimer();
-  if (task.elapsedSeconds >= task.minutes * 60) {
-    resetTimerRuntime();
-    safeRemove(activeTimerKey);
-    archiveCompletedTask(task.id);
-    return;
-  }
-  timerState.intervalId = setInterval(tickTimer, 1000);
-  if (minutesAdded) saveState();
   saveTimerSession();
 }
 
 function startTimer(id) {
   const task = state.tasks.find((item) => item.id === id);
-  if (!task || task.completed || task.elapsedSeconds >= task.minutes * 60) return;
-  if (timerState.activeId === id && timerState.intervalId) return;
-  if (timerState.activeId && timerState.activeId !== id) {
-    pauseTimer();
-  }
+  if (!task || task.completed || timerState.activeId === id) return;
   timerState.activeId = id;
-  timerState.lastTick = Date.now();
-  timerState.remainderMs = 0;
-  timerState.intervalId = setInterval(tickTimer, 1000);
   saveTimerSession();
   renderCalendar();
 }
 
 function pauseTimer() {
-  const { task, minutesAdded } = advanceActiveTimer();
-  const secondsAdded = commitTimerRemainder(task);
-  resetTimerRuntime();
-  safeRemove(activeTimerKey);
-  if (task && (minutesAdded || secondsAdded)) saveState();
+  clearTimerSession();
   renderCalendar();
-}
-
-function tickTimer() {
-  const { task, minutesAdded } = advanceActiveTimer();
-  if (!task) {
-    pauseTimer();
-    return;
-  }
-  if (task.elapsedSeconds >= task.minutes * 60) {
-    archiveCompletedTask(task.id);
-    return;
-  }
-  if (minutesAdded) {
-    saveState();
-    saveTimerSession();
-    renderCalendar();
-    return;
-  }
-  renderActiveTimer();
 }
 
 function updateDayTimerDisplay() {
@@ -1343,7 +1213,6 @@ function renderCalendar(options = {}) {
     const layout = calendarLayout.get(task.id) || { compactOffset: 0, hasConflict: false, laneCount: 1, laneIndex: 0, zIndex: 1 };
     if (task.type === "meeting") block.classList.add("meeting");
     if (task.completed) block.classList.add("completed");
-    if (!task.completed && task.elapsedMinutes >= task.minutes) block.classList.add("overdue");
     if (timerState.activeId === task.id) block.classList.add("timer-active");
     if (group) block.classList.add("split-grouped");
     if (layout.hasConflict) block.classList.add("overlap-conflict");
@@ -1394,21 +1263,12 @@ function renderCalendar(options = {}) {
       titleWrap.appendChild(part);
     }
 
-    const remainingMinutes = Math.max(0, task.minutes - task.elapsedMinutes);
-    const remainingSeconds = getLiveRemainingSeconds(task);
-    const time = document.createElement("span");
-    time.className = "calendar-block-time";
-    time.textContent = timerState.activeId === task.id
-      ? `${formatTimer(remainingSeconds)} left`
-      : `${formatDuration(remainingMinutes)} left`;
-
     const priorityChip = document.createElement("span");
     priorityChip.className = "priority-chip";
     priorityChip.textContent = scoreToLabel(task.priorityScore);
 
     const topMeta = document.createElement("div");
     topMeta.className = "calendar-top-meta";
-    topMeta.append(time);
     const subtaskSummary = formatSubtaskProgress(task, true);
     if (subtaskSummary) {
       const subtaskChip = document.createElement("span");
@@ -1426,35 +1286,12 @@ function renderCalendar(options = {}) {
 
     topLine.append(titleWrap, topMeta);
 
-    const progress = document.createElement("div");
-    progress.className = "calendar-progress";
-    progress.dataset.testid = "calendar-progress";
-    const progressFill = document.createElement("div");
-    progressFill.className = "calendar-progress-fill";
-    const percent = task.minutes
-      ? Math.round((task.elapsedMinutes / task.minutes) * 100)
-      : 0;
-    progressFill.style.width = `${Math.min(100, percent)}%`;
-    progress.append(progressFill);
-    progress.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-      const rect = progress.getBoundingClientRect();
-      dragState.progressId = task.id;
-      dragState.progressRect = rect;
-      const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      setElapsedFromRatio(task.id, ratio);
-      progress.setPointerCapture(event.pointerId);
-    });
-    progress.addEventListener("click", (event) => {
-      event.stopPropagation();
-    });
-
     const resizeHandle = document.createElement("span");
     resizeHandle.className = "resize-handle";
     resizeHandle.dataset.testid = "resize-handle";
     resizeHandle.title = "Drag to resize";
     resizeHandle.setAttribute("aria-label", `Resize ${task.name}`);
-    content.append(topLine, meta, progress);
+    content.append(topLine, meta);
     block.append(content, resizeHandle);
     block.addEventListener("click", (event) => {
       if (event.target === resizeHandle || dragState.isResizing || dragState.pointerMoved) return;
@@ -1619,7 +1456,7 @@ function renderTaskDetails() {
   els.detailToggleTimer.hidden = isBacklog;
   els.detailToggleDone.hidden = isBacklog;
   els.detailSplit.hidden = isBacklog;
-  els.detailToggleTimer.textContent = timerState.activeId === task.id ? "Pause" : "Start";
+  els.detailToggleTimer.textContent = timerState.activeId === task.id ? "Stop" : "Start";
   els.detailToggleDone.textContent = "Done";
   els.detailBacklog.textContent = isBacklog ? "Pick up" : "Move to backlog";
   els.saveTaskEditor.textContent = isCreate ? `Create ${kind}` : "Save changes";
@@ -1797,7 +1634,7 @@ function removeSelectedTask() {
   const itemKind = collection[index].type === "meeting" ? "meeting" : "task";
   if (!confirm(`Delete this ${itemKind}? This action cannot be undone.`)) return;
   const [removed] = collection.splice(index, 1);
-  if (timerState.activeId === removed.id) pauseTimer();
+  if (timerState.activeId === removed.id) clearTimerSession();
   resetTaskEditorState();
   closeDrawer(els.taskDetailsPanel);
   saveState();
@@ -2948,11 +2785,6 @@ function reorderTasks(dragId, targetId) {
 
 function setupDragAndResize() {
   document.addEventListener("pointermove", (event) => {
-    if (dragState.progressId && dragState.progressRect) {
-      const rect = dragState.progressRect;
-      const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      setElapsedFromRatio(dragState.progressId, ratio);
-    }
     if (dragState.moveId) {
       const task = state.tasks.find((item) => item.id === dragState.moveId);
       if (!task) return;
@@ -2998,8 +2830,6 @@ function setupDragAndResize() {
     dragState.isResizing = false;
     dragState.moveId = null;
     dragState.isMoving = false;
-    dragState.progressId = null;
-    dragState.progressRect = null;
     dragState.stableLaneCount = 0;
     dragState.stableLaneMap = null;
     dragState.stableTaskIds = null;
