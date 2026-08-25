@@ -34,7 +34,7 @@ All notable changes to Overrun Lite are documented here.
 
 ### Changed
 - **Context-aware inbox emphasis** — Analyze dump remains the primary action for an empty day, while Organize with current plan becomes primary whenever the day view contains tasks.
-- **Reliable task timers** — running calendar blocks stay interactive so Pause works, active timers resume after refresh, and sub-minute progress survives pause/restart cycles.
+- **Focus-only task activation** — Start and Stop now control a single highlighted day item, starting another item transfers the highlight, and the active choice survives refresh without advancing progress or completing the task automatically.
 - **Extended day calendar** — the planner now spans 04:00 through 24:00 while preserving existing tasks at their saved clock times.
 - **Safer task deletion** — deleting an existing task or meeting from the editor now requires explicit confirmation.
 - **Safer invite operations** — `npm run user:invite` now prints only the Overrun wrapper URL, and operator guidance covers fresh-link regeneration plus Supabase `otp_expired`/403 diagnosis.
