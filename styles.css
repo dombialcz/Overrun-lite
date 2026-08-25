@@ -90,15 +90,18 @@
   --completed-block-border: #7a8542;
   --completed-block-ink: #3f4a20;
   --completed-block-muted: #5f682f;
-  --timer-block-bg: #2a0c4e;
-  --timer-block-border: #6f4d78;
-  --timer-block-ink: #fff8f0;
-  --timer-block-muted: #e5d7e7;
+  --timer-block-bg: linear-gradient(135deg, #fff987 0%, #ffe447 52%, #ffd21f 100%);
+  --timer-block-border: #ad7600;
+  --timer-block-ink: #2a0c4e;
+  --timer-block-muted: #5a3c00;
   --overlap-block-bg: #f7dad7;
   --overlap-block-border: #9e2b25;
   --group-accent: rgba(81, 53, 90, 0.76);
   --meeting-group-accent: rgba(68, 81, 122, 0.72);
-  --timer-pulse: rgba(246, 170, 28, 0.3);
+  --timer-glow-gold: rgba(255, 194, 31, 0.78);
+  --timer-glow-pink: rgba(255, 118, 194, 0.62);
+  --timer-glow-blue: rgba(88, 204, 255, 0.62);
+  --timer-glow-mint: rgba(111, 232, 190, 0.56);
   --overdue-border: rgba(158, 43, 37, 0.9);
   --subtask-tint: rgb(132, 144, 79);
   --overlay-ink: #ffffff;
@@ -207,7 +210,10 @@
   --overlap-block-border: rgba(255, 174, 166, 0.78);
   --group-accent: rgba(224, 192, 230, 0.78);
   --meeting-group-accent: rgba(157, 166, 225, 0.76);
-  --timer-pulse: rgba(246, 170, 28, 0.32);
+  --timer-glow-gold: rgba(255, 194, 31, 0.72);
+  --timer-glow-pink: rgba(255, 137, 206, 0.58);
+  --timer-glow-blue: rgba(109, 214, 255, 0.58);
+  --timer-glow-mint: rgba(132, 239, 200, 0.52);
   --overdue-border: rgba(255, 174, 166, 0.86);
   --subtask-tint: rgb(86, 96, 46);
   --overlay-ink: #ffffff;
@@ -863,7 +869,8 @@ summary:focus-visible {
   background: var(--timer-block-bg);
   border-color: var(--timer-block-border);
   color: var(--timer-block-ink);
-  animation: timerPulse 1.8s ease-in-out infinite;
+  animation: activeTaskShimmer 2.8s ease-in-out infinite;
+  will-change: box-shadow;
 }
 
 .calendar-block.timer-active .calendar-block-meta,
@@ -871,9 +878,45 @@ summary:focus-visible {
   color: var(--timer-block-muted);
 }
 
-@keyframes timerPulse {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50% { box-shadow: 0 0 0 8px var(--timer-pulse); }
+@keyframes activeTaskShimmer {
+  0%, 100% {
+    box-shadow:
+      -7px -5px 13px 1px var(--timer-glow-pink),
+      7px -4px 14px 1px var(--timer-glow-blue),
+      6px 6px 13px 1px var(--timer-glow-mint),
+      -6px 6px 14px 1px var(--timer-glow-gold);
+  }
+  25% {
+    box-shadow:
+      7px -5px 13px 1px var(--timer-glow-pink),
+      6px 6px 14px 1px var(--timer-glow-blue),
+      -6px 6px 13px 1px var(--timer-glow-mint),
+      -7px -4px 14px 1px var(--timer-glow-gold);
+  }
+  50% {
+    box-shadow:
+      6px 6px 13px 1px var(--timer-glow-pink),
+      -6px 6px 14px 1px var(--timer-glow-blue),
+      -7px -5px 13px 1px var(--timer-glow-mint),
+      7px -4px 14px 1px var(--timer-glow-gold);
+  }
+  75% {
+    box-shadow:
+      -6px 6px 13px 1px var(--timer-glow-pink),
+      -7px -4px 14px 1px var(--timer-glow-blue),
+      7px -5px 13px 1px var(--timer-glow-mint),
+      6px 6px 14px 1px var(--timer-glow-gold);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-block.timer-active {
+    animation: none;
+    box-shadow:
+      -4px -3px 11px 1px var(--timer-glow-pink),
+      4px -3px 12px 1px var(--timer-glow-blue),
+      0 5px 12px 1px var(--timer-glow-gold);
+  }
 }
 
 .calendar-block.meeting {
