@@ -177,6 +177,25 @@ test("button variants have clear hover and washed disabled states", async ({ ui 
   }
 });
 
+test("context organize is emphasized only while the day contains tasks", async ({ ui }) => {
+  const analyze = ui.page.getByTestId("analyze-dump");
+  const organize = ui.page.getByTestId("context-organize");
+
+  await expect(analyze).toHaveClass(/\bprimary\b/);
+  await expect(organize).toHaveClass(/\bghost\b/);
+
+  await ui.calendar.addTask("Use the current plan");
+  await expect(analyze).toHaveClass(/\bghost\b/);
+  await expect(organize).toHaveClass(/\bprimary\b/);
+
+  await ui.calendar.openTask(0);
+  await ui.page.getByTestId("detail-backlog").click();
+  await expect(ui.calendar.blocks()).toHaveCount(0);
+  await expect(ui.backlog.items()).toHaveCount(1);
+  await expect(analyze).toHaveClass(/\bprimary\b/);
+  await expect(organize).toHaveClass(/\bghost\b/);
+});
+
 test("mobile header stays compact and keeps every utility on screen", async ({ ui }) => {
   await ui.page.setViewportSize({ width: 390, height: 844 });
   const metrics = await ui.page.evaluate(() => {

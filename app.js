@@ -1322,6 +1322,7 @@ function createBacklogCard(task, action) {
 }
 
 function renderCalendar(options = {}) {
+  renderInboxActionEmphasis();
   els.calendarBlocks.innerHTML = "";
   const totalMinutes = state.tasks.reduce((sum, task) => sum + task.minutes, 0);
   const doneMinutes = state.tasks
@@ -2240,6 +2241,14 @@ function render() {
   renderReview();
   updateDayTimerDisplay();
   updateAIAvailability();
+}
+
+function renderInboxActionEmphasis() {
+  const hasDayTasks = state.tasks.length > 0;
+  els.analyzeDump.classList.toggle("primary", !hasDayTasks);
+  els.analyzeDump.classList.toggle("ghost", hasDayTasks);
+  els.contextOrganize.classList.toggle("primary", hasDayTasks);
+  els.contextOrganize.classList.toggle("ghost", !hasDayTasks);
 }
 
 function setStatus(message, isError = false) {

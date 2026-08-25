@@ -33,6 +33,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Context-aware inbox emphasis** — Analyze dump remains the primary action for an empty day, while Organize with current plan becomes primary whenever the day view contains tasks.
 - **Reliable task timers** — running calendar blocks stay interactive so Pause works, active timers resume after refresh, and sub-minute progress survives pause/restart cycles.
 - **Extended day calendar** — the planner now spans 04:00 through 24:00 while preserving existing tasks at their saved clock times.
 - **Safer task deletion** — deleting an existing task or meeting from the editor now requires explicit confirmation.
