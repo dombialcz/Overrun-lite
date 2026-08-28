@@ -7,6 +7,7 @@ All notable changes to Overrun Lite are documented here.
 ## [Unreleased]
 
 ### Added
+- **Quick task focus gestures** — double-clicking a calendar task, or double-tapping it on touch screens, now starts its focus highlight; repeating the gesture stops it.
 - **Empty-day AI scheduling** — brain dumps can now propose reviewable day-planner destinations and start times when the calendar is empty, with an eight-hour cap that keeps overflow in the backlog.
 - **Scanner-resistant invitation confirmation** — newly generated invite links now open an Overrun confirmation step and consume the one-time Supabase URL only after an explicit user click.
 - **Recoverable auth callbacks** — activation and password-reset callbacks preserve credentials for transient retries while expired, invalid, or used links show a dedicated next step instead of falling back to sign-in.
