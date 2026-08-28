@@ -189,6 +189,17 @@ const dragState = {
   pointerMoved: false,
 };
 
+const TASK_MULTI_TAP_DELAY_MS = 325;
+
+const taskGestureState = {
+  pendingOpenId: null,
+  pendingOpenTimeoutId: null,
+  lastTouchId: null,
+  lastTouchAt: 0,
+  ignoreClickUntil: 0,
+  ignoreDoubleClickUntil: 0,
+};
+
 const timerState = {
   activeId: null,
 };
@@ -853,6 +864,32 @@ function pauseTimer() {
   renderCalendar();
 }
 
+function toggleTaskTimer(id) {
+  if (timerState.activeId === id) {
+    pauseTimer();
+  } else {
+    startTimer(id);
+  }
+}
+
+function clearPendingTaskOpen() {
+  if (taskGestureState.pendingOpenTimeoutId !== null) {
+    clearTimeout(taskGestureState.pendingOpenTimeoutId);
+  }
+  taskGestureState.pendingOpenId = null;
+  taskGestureState.pendingOpenTimeoutId = null;
+}
+
+function scheduleTaskOpen(id) {
+  clearPendingTaskOpen();
+  taskGestureState.pendingOpenId = id;
+  taskGestureState.pendingOpenTimeoutId = setTimeout(() => {
+    const pendingId = taskGestureState.pendingOpenId;
+    clearPendingTaskOpen();
+    if (pendingId) openTaskDetails(pendingId);
+  }, TASK_MULTI_TAP_DELAY_MS);
+}
+
 function updateDayTimerDisplay() {
   els.dayTimer.textContent = formatTimer(dayTimer.remainingSeconds);
   els.toggleDay.textContent = dayTimer.intervalId ? "Pause day" : "Start day";
@@ -1295,7 +1332,15 @@ function renderCalendar(options = {}) {
     block.append(content, resizeHandle);
     block.addEventListener("click", (event) => {
       if (event.target === resizeHandle || dragState.isResizing || dragState.pointerMoved) return;
-      openTaskDetails(task.id);
+      if (Date.now() < taskGestureState.ignoreClickUntil) return;
+      scheduleTaskOpen(task.id);
+    });
+    block.addEventListener("dblclick", (event) => {
+      if (event.target === resizeHandle || dragState.isResizing || dragState.pointerMoved) return;
+      if (Date.now() < taskGestureState.ignoreDoubleClickUntil) return;
+      event.preventDefault();
+      clearPendingTaskOpen();
+      toggleTaskTimer(task.id);
     });
     block.addEventListener("pointerdown", (event) => {
       if (event.target === resizeHandle) return;
@@ -1307,12 +1352,26 @@ function renderCalendar(options = {}) {
       captureStableDragLanes(task);
       block.setPointerCapture(event.pointerId);
     });
-    block.addEventListener("pointerup", () => {
+    block.addEventListener("pointerup", (event) => {
+      const wasPointerMoved = dragState.pointerMoved;
       dragState.moveId = null;
       dragState.isMoving = false;
       dragState.stableLaneCount = 0;
       dragState.stableLaneMap = null;
       dragState.stableTaskIds = null;
+
+      if (event.pointerType !== "touch" || event.target === resizeHandle || wasPointerMoved) return;
+      const now = Date.now();
+      const isDoubleTap = taskGestureState.lastTouchId === task.id
+        && now - taskGestureState.lastTouchAt <= TASK_MULTI_TAP_DELAY_MS;
+      taskGestureState.lastTouchId = isDoubleTap ? null : task.id;
+      taskGestureState.lastTouchAt = isDoubleTap ? 0 : now;
+      if (!isDoubleTap) return;
+
+      clearPendingTaskOpen();
+      taskGestureState.ignoreClickUntil = now + TASK_MULTI_TAP_DELAY_MS;
+      taskGestureState.ignoreDoubleClickUntil = now + TASK_MULTI_TAP_DELAY_MS;
+      toggleTaskTimer(task.id);
     });
     resizeHandle.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -3009,13 +3068,8 @@ function setupEvents() {
   els.detailToggleTimer.addEventListener("click", () => {
     const task = commitTaskEditor({ closeAfter: false, silent: true });
     if (!task) return;
-    if (timerState.activeId === task.id) {
-      pauseTimer();
-      closeTaskDetails();
-    } else {
-      startTimer(task.id);
-      closeTaskDetails();
-    }
+    toggleTaskTimer(task.id);
+    closeTaskDetails();
   });
   els.detailToggleDone.addEventListener("click", () => {
     const task = commitTaskEditor({ closeAfter: false, silent: true });

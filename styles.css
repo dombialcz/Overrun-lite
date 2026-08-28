@@ -1170,6 +1170,7 @@ summary:focus-visible {
 .drawer[aria-hidden="true"] {
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
 }
 
 .review-drawer {
