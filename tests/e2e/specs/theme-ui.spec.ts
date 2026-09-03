@@ -26,6 +26,7 @@ const CONTRAST_PAIRS = [
 ] as const;
 
 const EXTRA_THEME_COLORS = [
+  "surface-soft",
   "ghost-hover-border",
   "danger-hover-border",
   "primary-disabled-border",
@@ -174,6 +175,39 @@ test("button variants have clear hover and washed disabled states", async ({ ui 
       color: colors["danger-disabled-ink"],
       cursor: "not-allowed",
     });
+  }
+});
+
+test("AI review cards and actions use theme surfaces in light and dark mode", async ({ ui }) => {
+  await ui.page.evaluate(() => {
+    localStorage.setItem("overrun_lite_review_draft", JSON.stringify({
+      type: "task_breakdown",
+      id: "breakdown-theme",
+      taskId: "task-theme",
+      taskTitle: "Prepare launch",
+      applyMode: "append",
+      summary: "A themed breakdown.",
+      warnings: [],
+      questions: [],
+      answers: {},
+      subtasks: [{ title: "Draft announcement", minutes: 25, accepted: true }],
+    }));
+  });
+
+  for (const theme of ["light", "dark"] as const) {
+    await ui.page.evaluate((nextTheme) => localStorage.setItem("overrun_lite_theme", nextTheme), theme);
+    await ui.page.reload();
+    const colors = await readThemeColors(ui.page);
+    const proposal = ui.page.getByTestId("breakdown-subtask");
+    const addStep = ui.page.getByTestId("add-breakdown-subtask");
+
+    await expect(proposal).toHaveCSS("background-color", cssRgb(colors["surface-soft"]));
+    await expect(addStep).toHaveClass(/\bghost\b/);
+    await expect(addStep).toHaveCSS("border-radius", "999px");
+    await expect(ui.page.getByTestId("review-footer")).toHaveCSS(
+      "background-color",
+      cssRgb(colors["panel-solid"])
+    );
   }
 });
 

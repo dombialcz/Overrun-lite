@@ -142,11 +142,14 @@ The planner supports two AI targets:
 AI output is always reviewed before it is applied. When the day plan is empty,
 brain dumps propose start times for up to eight hours of tasks and keep overflow
 in the backlog; when the day already has tasks, new proposals stay in the backlog.
-The review drawer lets the user change each destination and start time before
-applying. Drafts may show up to two optional clarifications when an answer would
-materially improve the proposal. Answering one enables a separate refinement
-action; it never blocks applying the initial draft. Detailed task steps remain an
-explicit “Help me get started” action for the selected task.
+The themed review drawer summarizes accepted work, keeps its Apply action visible,
+and lets the user change each destination and start time before applying. Drafts
+may show up to two optional clarifications when an answer would materially improve
+the proposal. Answering one enables a separate refinement action; refined drafts
+retain the user's guidance, summarize what changed, and preserve manual proposal
+edits. It never blocks applying the initial draft. Detailed task steps remain an
+explicit “Help me get started” action for the selected task, with Add or Replace
+chosen after the proposed steps and current task context are visible.
 If hosted AI is not configured, the account and sync features continue working;
 hosted AI controls are disabled instead of producing missing-key errors.
 

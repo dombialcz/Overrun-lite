@@ -40,6 +40,7 @@ let cloudCapabilities = { authEnabled: false, hostedAvailable: false };
 let cloudUser = null;
 let cloudUsage = null;
 let pendingInitialSyncChoice = null;
+let reviewReturnFocus = null;
 
 const state = {
   tasks: [],
@@ -104,7 +105,6 @@ const els = {
   detailAdvanced: document.getElementById("detail-advanced"),
   detailAdvancedSummary: document.getElementById("detail-advanced-summary"),
   detailBreakdownAI: document.getElementById("detail-breakdown-ai"),
-  detailBreakdownApplyMode: document.getElementById("detail-breakdown-apply-mode"),
   detailBreakdownGranularity: document.getElementById("detail-breakdown-granularity"),
   detailBreakdownInstructions: document.getElementById("detail-breakdown-instructions"),
   detailDelete: document.getElementById("detail-delete"),
@@ -151,8 +151,20 @@ const els = {
   resetPassword: document.getElementById("reset-password"),
   retryAuthLink: document.getElementById("retry-auth-link"),
   reviewHeading: document.getElementById("review-heading"),
+  reviewCard: document.getElementById("review-card"),
+  reviewChanges: document.getElementById("review-changes"),
+  reviewContext: document.getElementById("review-context"),
+  reviewContextTitle: document.getElementById("review-context-title"),
+  reviewCurrentDetails: document.getElementById("review-current-details"),
+  reviewCurrentList: document.getElementById("review-current-list"),
+  reviewCurrentSummary: document.getElementById("review-current-summary"),
+  reviewBreakdownApplyMode: document.getElementById("review-breakdown-apply-mode"),
+  reviewBreakdownModeField: document.getElementById("review-breakdown-mode-field"),
+  reviewGuidance: document.getElementById("review-guidance"),
+  reviewGuidanceList: document.getElementById("review-guidance-list"),
   reviewPanel: document.getElementById("review-panel"),
   reviewQuestions: document.getElementById("review-questions"),
+  reviewStats: document.getElementById("review-stats"),
   reviewSummary: document.getElementById("review-summary"),
   reviewTasks: document.getElementById("review-tasks"),
   reviewWarnings: document.getElementById("review-warnings"),
@@ -1450,7 +1462,6 @@ function prepareTaskEditorDrawer() {
   els.detailAISection.open = false;
   els.detailBreakdownInstructions.value = "";
   els.detailBreakdownGranularity.value = "medium";
-  els.detailBreakdownApplyMode.value = "append";
   els.detailTaskTitle.setCustomValidity("");
   openDrawer(els.taskDetailsPanel);
   renderTaskDetails();
@@ -1716,17 +1727,16 @@ function renderReview() {
   const isBreakdownDraft = draft.type === "task_breakdown";
   const isContextDraft = draft.type === "context_organize";
   const hasQuestions = Array.isArray(draft.questions) && draft.questions.length > 0;
-  els.reviewHeading.textContent = isBreakdownDraft
-    ? "Review task breakdown"
-    : isContextDraft
-      ? "Review context organize"
-      : "Review before applying";
-  els.applyReview.textContent = isBreakdownDraft
-    ? "Apply subtasks"
-    : isContextDraft
-      ? "Apply accepted changes"
-      : "Apply accepted tasks";
-  els.reanalyzeDump.hidden = isBreakdownDraft || !hasQuestions;
+  const isUpdated = Number(draft.revisionNumber || 1) > 1;
+  els.reviewHeading.textContent = isUpdated
+    ? isBreakdownDraft ? "Updated breakdown" : "Updated plan"
+    : isBreakdownDraft
+      ? "Review task breakdown"
+      : isContextDraft
+        ? "Review organized plan"
+        : "Review proposed plan";
+  els.reanalyzeDump.hidden = !hasQuestions;
+  els.reanalyzeDump.textContent = isUpdated ? "Update draft again" : "Update draft";
   els.reviewSummary.textContent = draft.summary || "Review the AI proposal before applying it.";
   els.reviewWarnings.innerHTML = "";
   (draft.warnings || []).forEach((warning) => {
@@ -1736,12 +1746,113 @@ function renderReview() {
     els.reviewWarnings.appendChild(item);
   });
 
+  renderReviewChrome(draft);
+  renderReviewGuidance(draft);
   renderReviewQuestions(draft);
   if (isBreakdownDraft) {
     renderReviewSubtasks(draft);
   } else {
     renderReviewTasks(draft);
     if (isContextDraft) renderReviewMergeSuggestions(draft);
+  }
+}
+
+function renderReviewChrome(draft) {
+  const isBreakdownDraft = draft.type === "task_breakdown";
+  const isContextDraft = draft.type === "context_organize";
+  const proposedTasks = Array.isArray(draft.proposedTasks) ? draft.proposedTasks : [];
+  const acceptedTasks = proposedTasks.filter((task) => task.accepted && task.title.trim());
+  const acceptedMerges = (draft.mergeSuggestions || []).filter((suggestion) => suggestion.accepted);
+  const acceptedSubtasks = getApplicableBreakdownSubtasks(draft);
+  const isUpdated = Number(draft.revisionNumber || 1) > 1;
+
+  els.reviewStats.innerHTML = "";
+  els.reviewCurrentList.innerHTML = "";
+  els.reviewCurrentDetails.open = false;
+  els.reviewBreakdownModeField.hidden = !isBreakdownDraft;
+  els.reviewCurrentDetails.hidden = true;
+
+  if (isBreakdownDraft) {
+    const liveTask = findTaskById(draft.taskId);
+    const originalSubtasks = Array.isArray(draft.originalSubtasks)
+      ? draft.originalSubtasks
+      : liveTask ? liveTask.subtasks : [];
+    const proposedMinutes = acceptedSubtasks.reduce((total, subtask) => total + subtask.minutes, 0);
+    const currentLabel = `${originalSubtasks.length} current ${pluralize(originalSubtasks.length, "step")}`;
+    els.reviewContextTitle.textContent = `${isUpdated ? "Updated breakdown for" : "Break down"} “${draft.taskTitle || "Selected task"}”`;
+    appendReviewStat(`${acceptedSubtasks.length} proposed ${pluralize(acceptedSubtasks.length, "step")}`);
+    appendReviewStat(formatDuration(proposedMinutes));
+    appendReviewStat(draft.applyMode === "replace" ? "Replace current steps" : "Add to current steps");
+    els.reviewBreakdownApplyMode.value = draft.applyMode === "replace" ? "replace" : "append";
+    if (originalSubtasks.length) {
+      els.reviewCurrentDetails.hidden = false;
+      els.reviewCurrentSummary.textContent = currentLabel;
+      originalSubtasks.forEach((subtask) => {
+        const item = document.createElement("li");
+        item.textContent = `${subtask.title} · ${formatDuration(subtask.minutes)}`;
+        els.reviewCurrentList.appendChild(item);
+      });
+    }
+    els.applyReview.textContent = draft.applyMode === "replace"
+      ? `Replace ${originalSubtasks.length} ${pluralize(originalSubtasks.length, "step")} with ${acceptedSubtasks.length} ${pluralize(acceptedSubtasks.length, "step")}`
+      : `Add ${acceptedSubtasks.length} ${pluralize(acceptedSubtasks.length, "step")}`;
+    els.applyReview.disabled = acceptedSubtasks.length === 0;
+    return;
+  }
+
+  const plannedCount = acceptedTasks.filter((task) => task.destination === "day").length;
+  const backlogCount = acceptedTasks.length - plannedCount;
+  const acceptedMinutes = acceptedTasks.reduce((total, task) => total + task.minutes, 0);
+  els.reviewContextTitle.textContent = isUpdated
+    ? "Updated plan based on your guidance"
+    : isContextDraft
+      ? "New and updated planner items"
+      : "Tasks extracted from your inbox";
+  appendReviewStat(`${acceptedTasks.length} accepted ${pluralize(acceptedTasks.length, "task")}`);
+  appendReviewStat(formatDuration(acceptedMinutes));
+  if (plannedCount) appendReviewStat(`${plannedCount} for today`);
+  if (backlogCount) appendReviewStat(`${backlogCount} for backlog`);
+  if (acceptedMerges.length) appendReviewStat(`${acceptedMerges.length} ${pluralize(acceptedMerges.length, "merge")}`);
+  const acceptedChanges = acceptedTasks.length + acceptedMerges.length;
+  els.applyReview.textContent = isContextDraft
+    ? `Apply ${acceptedChanges} accepted ${pluralize(acceptedChanges, "change")}`
+    : `Apply ${acceptedTasks.length} ${pluralize(acceptedTasks.length, "task")}`;
+  els.applyReview.disabled = acceptedChanges === 0;
+}
+
+function appendReviewStat(text) {
+  const stat = document.createElement("span");
+  stat.className = "review-pill";
+  stat.textContent = text;
+  els.reviewStats.appendChild(stat);
+}
+
+function renderReviewGuidance(draft) {
+  const guidance = Array.isArray(draft.guidance) ? draft.guidance : [];
+  const changes = Array.isArray(draft.changeSummary) ? draft.changeSummary : [];
+  els.reviewGuidance.hidden = guidance.length === 0 && changes.length === 0;
+  els.reviewGuidanceList.innerHTML = "";
+  els.reviewChanges.innerHTML = "";
+  if (els.reviewGuidance.hidden) return;
+
+  guidance.forEach((item) => {
+    const question = document.createElement("dt");
+    question.textContent = item.question;
+    const answer = document.createElement("dd");
+    answer.textContent = item.answer;
+    els.reviewGuidanceList.append(question, answer);
+  });
+
+  if (changes.length) {
+    const heading = document.createElement("h4");
+    heading.textContent = "What changed";
+    const list = document.createElement("ul");
+    changes.forEach((change) => {
+      const item = document.createElement("li");
+      item.textContent = change;
+      list.appendChild(item);
+    });
+    els.reviewChanges.append(heading, list);
   }
 }
 
@@ -1753,8 +1864,11 @@ function renderReviewQuestions(draft) {
   if (!questions.length) return;
 
   const heading = document.createElement("h3");
-  heading.textContent = "Optional clarifications";
-  els.reviewQuestions.appendChild(heading);
+  heading.textContent = "Optional questions";
+  const helper = document.createElement("p");
+  helper.className = "review-section-intro";
+  helper.textContent = "Answer any question that would materially improve this draft.";
+  els.reviewQuestions.append(heading, helper);
 
   questions.forEach((question) => {
     const row = document.createElement("label");
@@ -1765,6 +1879,7 @@ function renderReviewQuestions(draft) {
     const input = document.createElement("textarea");
     input.rows = 2;
     input.placeholder = "Optional answer";
+    input.className = "review-answer";
     input.value = draft.answers[question.id] || "";
     input.addEventListener("input", () => {
       draft.answers[question.id] = input.value;
@@ -1798,26 +1913,60 @@ function renderReviewTasks(draft) {
     const accept = document.createElement("input");
     accept.type = "checkbox";
     accept.checked = task.accepted;
+    accept.setAttribute("aria-label", `Include ${task.title}`);
     accept.addEventListener("change", () => {
       task.accepted = accept.checked;
+      markReviewItemEdited(task, "accepted");
+      card.classList.toggle("muted-card", !task.accepted);
       saveReviewDraft();
-      renderReviewTasks(draft);
+      renderReviewChrome(draft);
     });
+
+    const acceptLabel = document.createElement("label");
+    acceptLabel.className = "proposal-accept";
+    const acceptText = document.createElement("span");
+    acceptText.textContent = "Include";
+    acceptLabel.append(accept, acceptText);
 
     const title = document.createElement("input");
     title.type = "text";
+    title.maxLength = 180;
+    title.className = "proposal-title-input";
+    title.setAttribute("aria-label", "Task title");
     title.value = task.title;
     title.addEventListener("input", () => {
       task.title = title.value;
+      markReviewItemEdited(task, "title");
+      accept.setAttribute("aria-label", `Include ${task.title || "task"}`);
       saveReviewDraft();
+      renderReviewChrome(draft);
     });
+
+    const metadata = document.createElement("div");
+    metadata.className = "proposal-metadata";
+    const durationPill = createReviewPill("");
+    const destinationPill = createReviewPill("");
+    const priorityPill = createReviewPill("");
+    metadata.append(durationPill, destinationPill, priorityPill);
+    const refreshMetadata = () => {
+      durationPill.textContent = formatDuration(task.minutes);
+      destinationPill.textContent = task.destination === "day"
+        ? `Today${task.startTime ? ` · ${task.startTime}` : ""}`
+        : "Backlog";
+      priorityPill.textContent = scoreToLabel(task.priorityScore);
+    };
 
     const minutes = createNumberInput(task.minutes, 10, 480, (value) => {
       task.minutes = value;
+      markReviewItemEdited(task, "minutes");
+      refreshMetadata();
       saveReviewDraft();
+      renderReviewChrome(draft);
     });
     const priority = createNumberInput(task.priorityScore, 1, 100, (value) => {
       task.priorityScore = value;
+      markReviewItemEdited(task, "priorityScore");
+      refreshMetadata();
       saveReviewDraft();
     });
 
@@ -1830,11 +1979,15 @@ function renderReviewTasks(draft) {
     destination.value = task.destination === "day" ? "day" : "backlog";
     destination.addEventListener("change", () => {
       task.destination = destination.value;
+      markReviewItemEdited(task, "destination");
       if (task.destination === "day" && !task.startTime) {
         task.startTime = formatClockTime(DEFAULT_AI_DAY_START_MINUTES);
       }
+      startTime.disabled = task.destination !== "day";
+      startTime.value = task.startTime || "";
+      refreshMetadata();
       saveReviewDraft();
-      renderReviewTasks(draft);
+      renderReviewChrome(draft);
     });
 
     const startTime = document.createElement("input");
@@ -1847,6 +2000,8 @@ function renderReviewTasks(draft) {
     startTime.dataset.testid = "proposal-start-time";
     startTime.addEventListener("input", () => {
       task.startTime = startTime.value;
+      markReviewItemEdited(task, "startTime");
+      refreshMetadata();
       saveReviewDraft();
     });
 
@@ -1855,28 +2010,42 @@ function renderReviewTasks(draft) {
     reason.value = task.priorityReason;
     reason.addEventListener("input", () => {
       task.priorityReason = reason.value;
+      markReviewItemEdited(task, "priorityReason");
       saveReviewDraft();
     });
 
+    const subtaskSection = document.createElement("section");
+    subtaskSection.className = "proposal-subtask-section";
+    const subtaskHeader = document.createElement("div");
+    subtaskHeader.className = "proposal-subtask-header";
+    const subtaskHeading = document.createElement("h4");
+    subtaskHeading.textContent = "Subtasks";
     const subtaskList = document.createElement("div");
     subtaskList.className = "proposal-subtasks";
     task.subtasks.forEach((subtask, subtaskIndex) => {
       const subtaskInput = document.createElement("input");
       subtaskInput.type = "text";
       subtaskInput.value = subtask.title;
+      subtaskInput.setAttribute("aria-label", `Subtask ${subtaskIndex + 1}`);
       subtaskInput.addEventListener("input", () => {
         subtask.title = subtaskInput.value;
+        markReviewItemEdited(task, "subtasks");
         saveReviewDraft();
       });
       const subtaskMinutes = createNumberInput(subtask.minutes, 5, 240, (value) => {
         subtask.minutes = value;
+        markReviewItemEdited(task, "subtasks");
         saveReviewDraft();
       });
+      subtaskMinutes.setAttribute("aria-label", `Minutes for subtask ${subtaskIndex + 1}`);
       const remove = makeButton("Remove", () => {
         task.subtasks.splice(subtaskIndex, 1);
+        markReviewItemEdited(task, "subtasks");
         saveReviewDraft();
         renderReviewTasks(draft);
       });
+      remove.className = "ghost compact-button review-row-action";
+      remove.setAttribute("aria-label", `Remove ${subtask.title || "subtask"}`);
       const row = document.createElement("div");
       row.className = "subtask-edit-row";
       row.append(subtaskInput, subtaskMinutes, remove);
@@ -1885,15 +2054,17 @@ function renderReviewTasks(draft) {
 
     const addSubtask = makeButton("Add subtask", () => {
       task.subtasks.push({ title: "New action", minutes: 25 });
+      markReviewItemEdited(task, "subtasks");
       saveReviewDraft();
       renderReviewTasks(draft);
     });
+    addSubtask.className = "ghost compact-button";
+    subtaskHeader.append(subtaskHeading, addSubtask);
+    subtaskSection.append(subtaskHeader, subtaskList);
 
     const grid = document.createElement("div");
-    grid.className = "proposal-grid";
+    grid.className = "proposal-edit-grid";
     grid.append(
-      makeField("Accept", accept),
-      makeField("Task", title),
       makeField("Minutes", minutes),
       makeField("Destination", destination),
       makeField("Start time", startTime),
@@ -1901,13 +2072,16 @@ function renderReviewTasks(draft) {
       makeField("Reason", reason)
     );
 
-    const removeTaskButton = makeButton("Discard", () => {
-      draft.proposedTasks.splice(index, 1);
-      saveReviewDraft();
-      renderReviewTasks(draft);
-    });
-
-    card.append(grid, subtaskList, addSubtask, removeTaskButton);
+    const header = document.createElement("div");
+    header.className = "proposal-card-header";
+    header.append(acceptLabel, title, metadata);
+    const details = document.createElement("details");
+    details.className = "proposal-details";
+    const detailsSummary = document.createElement("summary");
+    detailsSummary.textContent = "Edit details";
+    details.append(detailsSummary, grid, subtaskSection);
+    refreshMetadata();
+    card.append(header, details);
     els.reviewTasks.appendChild(card);
   });
 }
@@ -1938,8 +2112,15 @@ function renderReviewMergeSuggestions(draft) {
     accept.addEventListener("change", () => {
       suggestion.accepted = accept.checked;
       saveReviewDraft();
-      renderReview();
+      card.classList.toggle("muted-card", !suggestion.accepted);
+      renderReviewChrome(draft);
     });
+
+    const acceptLabel = document.createElement("label");
+    acceptLabel.className = "proposal-accept";
+    const acceptText = document.createElement("span");
+    acceptText.textContent = "Include";
+    acceptLabel.append(accept, acceptText);
 
     const target = document.createElement("input");
     target.type = "text";
@@ -2006,6 +2187,7 @@ function renderReviewMergeSuggestions(draft) {
         saveReviewDraft();
         renderReview();
       });
+      remove.className = "ghost compact-button review-row-action";
 
       const row = document.createElement("div");
       row.className = "merge-subtask-edit-row";
@@ -2018,17 +2200,11 @@ function renderReviewMergeSuggestions(draft) {
       saveReviewDraft();
       renderReview();
     });
-
-    const discard = makeButton("Discard", () => {
-      draft.mergeSuggestions.splice(index, 1);
-      saveReviewDraft();
-      renderReview();
-    });
+    addSubtask.className = "ghost compact-button";
 
     const grid = document.createElement("div");
-    grid.className = "proposal-grid merge-grid";
+    grid.className = "proposal-edit-grid merge-grid";
     grid.append(
-      makeField("Accept", accept),
       makeField("Existing task", target),
       makeField("Priority", priority),
       makeField("Urgency", urgency),
@@ -2036,7 +2212,17 @@ function renderReviewMergeSuggestions(draft) {
       makeField("Priority reason", reason)
     );
 
-    card.append(grid, mergeReason, subtaskList, addSubtask, discard);
+    const header = document.createElement("div");
+    header.className = "proposal-card-header merge-card-header";
+    const title = document.createElement("h4");
+    title.textContent = suggestion.targetTitle || suggestion.taskId;
+    header.append(acceptLabel, title, createReviewPill("Existing task"));
+    const details = document.createElement("details");
+    details.className = "proposal-details";
+    const detailsSummary = document.createElement("summary");
+    detailsSummary.textContent = "Review merge details";
+    details.append(detailsSummary, mergeReason, grid, subtaskList, addSubtask);
+    card.append(header, details);
     els.reviewTasks.appendChild(card);
   });
 }
@@ -2044,7 +2230,7 @@ function renderReviewMergeSuggestions(draft) {
 function renderReviewSubtasks(draft) {
   els.reviewTasks.innerHTML = "";
   const heading = document.createElement("h3");
-  heading.textContent = "Proposed subtasks";
+  heading.textContent = "Proposed steps";
   els.reviewTasks.appendChild(heading);
   if (!draft.subtasks.length) {
     const empty = document.createElement("p");
@@ -2063,52 +2249,79 @@ function renderReviewSubtasks(draft) {
     const accept = document.createElement("input");
     accept.type = "checkbox";
     accept.checked = subtask.accepted;
+    accept.setAttribute("aria-label", `Include ${subtask.title}`);
     accept.addEventListener("change", () => {
       subtask.accepted = accept.checked;
+      markReviewItemEdited(subtask, "accepted");
+      card.classList.toggle("muted-card", !subtask.accepted);
       saveReviewDraft();
-      renderReviewSubtasks(draft);
+      renderReviewChrome(draft);
     });
+
+    const acceptLabel = document.createElement("label");
+    acceptLabel.className = "proposal-accept";
+    const acceptText = document.createElement("span");
+    acceptText.textContent = "Include";
+    acceptLabel.append(accept, acceptText);
 
     const title = document.createElement("input");
     title.type = "text";
+    title.maxLength = 180;
+    title.className = "proposal-title-input";
     title.value = subtask.title;
     title.dataset.testid = "breakdown-subtask-title";
     title.addEventListener("input", () => {
       subtask.title = title.value;
+      markReviewItemEdited(subtask, "title");
+      accept.setAttribute("aria-label", `Include ${subtask.title || "step"}`);
       saveReviewDraft();
+      renderReviewChrome(draft);
     });
 
     const minutes = createNumberInput(subtask.minutes, 5, 240, (value) => {
       subtask.minutes = value;
+      markReviewItemEdited(subtask, "minutes");
+      durationPill.textContent = formatDuration(value);
+      renderReviewChrome(draft);
       saveReviewDraft();
     });
     minutes.dataset.testid = "breakdown-subtask-minutes";
-
-    const remove = makeButton("Remove", () => {
-      draft.subtasks.splice(index, 1);
-      saveReviewDraft();
-      renderReviewSubtasks(draft);
-    });
-
-    const grid = document.createElement("div");
-    grid.className = "proposal-grid breakdown-grid";
-    grid.append(
-      makeField("Accept", accept),
-      makeField("Subtask", title),
-      makeField("Minutes", minutes)
-    );
-
-    card.append(grid, remove);
+    minutes.setAttribute("aria-label", `Minutes for ${subtask.title || `step ${index + 1}`}`);
+    const durationPill = createReviewPill(formatDuration(subtask.minutes));
+    const header = document.createElement("div");
+    header.className = "proposal-card-header breakdown-card-header";
+    header.append(acceptLabel, title, durationPill);
+    const editRow = document.createElement("div");
+    editRow.className = "breakdown-minute-field";
+    editRow.append(makeField("Minutes", minutes));
+    card.append(header, editRow);
     els.reviewTasks.appendChild(card);
   });
 
   const addSubtask = makeButton("Add subtask", () => {
     draft.subtasks.push({ title: "New action", minutes: 25, accepted: true });
     saveReviewDraft();
-    renderReviewSubtasks(draft);
+    renderReview(draft);
   });
+  addSubtask.className = "ghost compact-button review-add-button";
   addSubtask.dataset.testid = "add-breakdown-subtask";
   els.reviewTasks.appendChild(addSubtask);
+}
+
+function createReviewPill(text) {
+  const pill = document.createElement("span");
+  pill.className = "review-pill";
+  pill.textContent = text;
+  return pill;
+}
+
+function markReviewItemEdited(item, field) {
+  if (!Array.isArray(item.userEditedFields)) item.userEditedFields = [];
+  if (!item.userEditedFields.includes(field)) item.userEditedFields.push(field);
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return count === 1 ? singular : plural;
 }
 
 function makeField(labelText, control) {
@@ -2160,6 +2373,71 @@ function closeDrawer(drawer) {
   drawer.setAttribute("aria-hidden", "true");
 }
 
+function openReviewDrawer({ preserveReturnFocus = false, returnFocus = null } = {}) {
+  if (!preserveReturnFocus) reviewReturnFocus = returnFocus || document.activeElement;
+  openDrawer(els.reviewPanel);
+  els.reviewCard.scrollTop = 0;
+  window.requestAnimationFrame(() => els.reviewCard.focus());
+}
+
+function closeReviewDrawer({ restoreFocus = true } = {}) {
+  closeDrawer(els.reviewPanel);
+  if (!restoreFocus) return;
+  const returnTarget = reviewReturnFocus && elementIsVisible(reviewReturnFocus)
+    ? reviewReturnFocus
+    : state.reviewDraft && state.reviewDraft.type === "task_breakdown"
+      ? document.querySelector('[data-testid="calendar-block"]')
+      : state.reviewDraft && state.reviewDraft.type === "context_organize"
+        ? els.contextOrganize
+        : els.analyzeDump;
+  reviewReturnFocus = null;
+  if (returnTarget && typeof returnTarget.focus === "function") {
+    window.requestAnimationFrame(() => returnTarget.focus());
+  }
+}
+
+function elementIsVisible(element) {
+  return element instanceof HTMLElement
+    && element.getClientRects().length > 0
+    && !element.closest('[aria-hidden="true"]');
+}
+
+function trapReviewFocus(event) {
+  if (els.reviewPanel.getAttribute("aria-hidden") === "true") return false;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeReviewDrawer();
+    return true;
+  }
+  if (event.key !== "Tab") return false;
+  const focusable = Array.from(els.reviewCard.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+  )).filter(elementIsVisible);
+  if (!focusable.length) {
+    event.preventDefault();
+    els.reviewCard.focus();
+    return true;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (document.activeElement === els.reviewCard || !els.reviewCard.contains(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+    return true;
+  }
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
+}
+
 function sortBacklogByPriority() {
   const openTasks = state.backlog.filter((task) => !task.completed);
   const doneTasks = state.backlog.filter((task) => task.completed);
@@ -2181,6 +2459,7 @@ function createPlannerPayload(mode = "brain_dump", options = {}) {
       ? refinementDraft.sourceText
       : els.brainDump.value.trim(),
     clarifications: buildClarifications(refinementDraft),
+    currentDraft: refinementDraft ? summarizeReviewDraftForAI(refinementDraft) : null,
     currentTasks: state.tasks.map(summarizeTaskForAI),
     currentBacklog: state.backlog.filter((task) => !task.completed).map(summarizeTaskForAI),
     scheduling: {
@@ -2193,7 +2472,7 @@ function createPlannerPayload(mode = "brain_dump", options = {}) {
   };
 }
 
-function buildClarifications(draft) {
+function buildPendingClarifications(draft) {
   if (!draft || !Array.isArray(draft.questions)) return [];
   const answers = draft.answers && typeof draft.answers === "object" ? draft.answers : {};
   return draft.questions
@@ -2203,12 +2482,35 @@ function buildClarifications(draft) {
       reason: question.reason,
       answer: String(answers[question.id] || "").trim(),
     }))
-    .filter((clarification) => clarification.answer)
-    .slice(0, 2);
+    .filter((clarification) => clarification.answer);
+}
+
+function buildClarifications(draft) {
+  if (!draft) return [];
+  const guidance = Array.isArray(draft.guidance) ? draft.guidance : [];
+  return mergeClarifications(guidance, buildPendingClarifications(draft)).slice(0, 2);
+}
+
+function mergeClarifications(...groups) {
+  const merged = [];
+  const seen = new Set();
+  groups.flat().forEach((item) => {
+    if (!item || !String(item.answer || "").trim()) return;
+    const key = normalizeComparableTitle(item.question);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push({
+      id: item.id,
+      question: item.question,
+      reason: item.reason,
+      answer: String(item.answer).trim(),
+    });
+  });
+  return merged;
 }
 
 function hasAnsweredClarification(draft) {
-  return buildClarifications(draft).length > 0;
+  return buildPendingClarifications(draft).length > 0;
 }
 
 function removeAnsweredQuestions(questions, clarifications) {
@@ -2220,16 +2522,63 @@ function removeAnsweredQuestions(questions, clarifications) {
   );
 }
 
-function createBreakdownPayload(task) {
+function createBreakdownPayload(task, options = {}) {
+  const refinementDraft = options.refine && state.reviewDraft && state.reviewDraft.type === "task_breakdown"
+    ? state.reviewDraft
+    : null;
   return {
     mode: "task_breakdown",
     task: summarizeTaskForAI(task),
-    instructions: els.detailBreakdownInstructions.value.trim(),
-    granularity: ["small", "medium", "large"].includes(els.detailBreakdownGranularity.value)
-      ? els.detailBreakdownGranularity.value
-      : "medium",
-    applyMode: els.detailBreakdownApplyMode.value === "replace" ? "replace" : "append",
+    instructions: refinementDraft
+      ? String(refinementDraft.instructions || "")
+      : els.detailBreakdownInstructions.value.trim(),
+    granularity: refinementDraft
+      ? normalizeBreakdownGranularity(refinementDraft.granularity)
+      : ["small", "medium", "large"].includes(els.detailBreakdownGranularity.value)
+        ? els.detailBreakdownGranularity.value
+        : "medium",
+    applyMode: refinementDraft && refinementDraft.applyMode === "replace" ? "replace" : "append",
+    clarifications: buildClarifications(refinementDraft),
+    currentDraft: refinementDraft ? summarizeReviewDraftForAI(refinementDraft) : null,
   };
+}
+
+function summarizeReviewDraftForAI(draft) {
+  if (draft.type === "task_breakdown") {
+    return {
+      subtasks: (draft.subtasks || []).map((subtask) => ({
+        title: subtask.title,
+        minutes: subtask.minutes,
+        accepted: subtask.accepted,
+        userEditedFields: subtask.userEditedFields || [],
+      })),
+    };
+  }
+  return {
+    proposedTasks: (draft.proposedTasks || []).map((task) => ({
+      title: task.title,
+      minutes: task.minutes,
+      priorityScore: task.priorityScore,
+      priorityReason: task.priorityReason,
+      urgency: task.urgency,
+      impact: task.impact,
+      destination: task.destination,
+      startTime: task.startTime,
+      accepted: task.accepted,
+      subtasks: (task.subtasks || []).map((subtask) => ({
+        title: subtask.title,
+        minutes: subtask.minutes,
+      })),
+      userEditedFields: task.userEditedFields || [],
+    })),
+    mergeSuggestions: draft.mergeSuggestions || [],
+  };
+}
+
+function normalizeBreakdownGranularity(value) {
+  return ["small", "medium", "large"].includes(value)
+    ? value
+    : "medium";
 }
 
 function summarizeTaskForAI(task) {
@@ -2323,7 +2672,12 @@ function prepareProposedTasksForReview(proposedTasks, canPlanDay) {
   let plannedMinutes = 0;
   let overflowCount = 0;
   const proposals = proposedTasks.map((task) => {
-    const proposal = { ...task };
+    const proposal = {
+      ...task,
+      sourceTitle: task.sourceTitle || task.title,
+      userEditedFields: Array.isArray(task.userEditedFields) ? [...task.userEditedFields] : [],
+      subtasks: (task.subtasks || []).map((subtask) => ({ ...subtask })),
+    };
     if (!canPlanDay || proposal.destination === "backlog") {
       proposal.destination = "backlog";
       return proposal;
@@ -2355,6 +2709,85 @@ function prepareProposedTasksForReview(proposedTasks, canPlanDay) {
   return { proposals, overflowCount };
 }
 
+function preserveManualReviewEdits(nextItems, previousItems, fields) {
+  const previous = Array.isArray(previousItems) ? previousItems : [];
+  const usedPrevious = new Set();
+  const preserved = nextItems.map((nextItem, index) => {
+    const nextTitle = normalizeComparableTitle(nextItem.title);
+    let previousIndex = previous.findIndex((item, candidateIndex) => {
+      if (usedPrevious.has(candidateIndex)) return false;
+      return [item.title, item.sourceTitle]
+        .map(normalizeComparableTitle)
+        .filter(Boolean)
+        .includes(nextTitle);
+    });
+    if (previousIndex === -1 && previous[index] && !usedPrevious.has(index)) previousIndex = index;
+    if (previousIndex === -1) {
+      return {
+        ...nextItem,
+        sourceTitle: nextItem.sourceTitle || nextItem.title,
+        userEditedFields: [],
+      };
+    }
+
+    usedPrevious.add(previousIndex);
+    const previousItem = previous[previousIndex];
+    const editedFields = Array.isArray(previousItem.userEditedFields)
+      ? previousItem.userEditedFields
+      : [];
+    const result = {
+      ...nextItem,
+      sourceTitle: previousItem.sourceTitle || nextItem.title,
+      userEditedFields: [...editedFields],
+    };
+    editedFields.forEach((field) => {
+      if (!fields.includes(field)) return;
+      result[field] = field === "subtasks"
+        ? (previousItem.subtasks || []).map((subtask) => ({ ...subtask }))
+        : previousItem[field];
+    });
+    return result;
+  });
+
+  previous.forEach((item, index) => {
+    if (usedPrevious.has(index) || !(item.userEditedFields || []).length) return;
+    preserved.push({
+      ...item,
+      subtasks: (item.subtasks || []).map((subtask) => ({ ...subtask })),
+      userEditedFields: [...item.userEditedFields],
+    });
+  });
+  return preserved;
+}
+
+function buildReviewChangeSummary(previousItems, nextItems, itemLabel) {
+  const previous = Array.isArray(previousItems) ? previousItems : [];
+  const next = Array.isArray(nextItems) ? nextItems : [];
+  const changes = [];
+  if (previous.length !== next.length) {
+    changes.push(`${capitalize(itemLabel)} count changed from ${previous.length} to ${next.length}.`);
+  }
+  const previousMinutes = previous.reduce((total, item) => total + Number(item.minutes || 0), 0);
+  const nextMinutes = next.reduce((total, item) => total + Number(item.minutes || 0), 0);
+  if (previousMinutes !== nextMinutes) {
+    changes.push(`Estimated time changed from ${formatDuration(previousMinutes)} to ${formatDuration(nextMinutes)}.`);
+  }
+  const changedTitles = next.filter((item, index) => previous[index]
+    && normalizeComparableTitle(previous[index].title) !== normalizeComparableTitle(item.title)).length;
+  if (changedTitles) {
+    changes.push(`${changedTitles} ${pluralize(changedTitles, itemLabel)} renamed.`);
+  }
+  const manualEditsPreserved = next.some((item) => (item.userEditedFields || []).length > 0);
+  if (manualEditsPreserved) changes.push("Your manual edits were preserved.");
+  if (!changes.length) changes.push("The draft was refreshed using your guidance.");
+  return changes.slice(0, 4);
+}
+
+function capitalize(value) {
+  const text = String(value || "");
+  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+}
+
 function findTaskById(taskId) {
   return [...state.tasks, ...state.backlog].find((item) => item.id === taskId);
 }
@@ -2383,7 +2816,9 @@ function normalizeMergeSuggestionsForReview(mergeSuggestions) {
 
 async function analyzeDump(options = {}) {
   const mode = options.mode === "context_organize" ? "context_organize" : "brain_dump";
-  const payload = createPlannerPayload(mode, { refine: options.refine === true });
+  const isRefinement = options.refine === true;
+  const previousDraft = isRefinement ? state.reviewDraft : null;
+  const payload = createPlannerPayload(mode, { refine: isRefinement });
   if (!payload.input) {
     setStatus("Add a brain dump before analyzing.", true);
     return;
@@ -2415,25 +2850,43 @@ async function analyzeDump(options = {}) {
     if (mergeReview.skipped) {
       warnings.push(`${mergeReview.skipped} merge suggestion${mergeReview.skipped === 1 ? " referenced" : "s referenced"} missing tasks and skipped.`);
     }
+    let proposedTasks = preparedTasks.proposals.map((task) => ({
+      ...task,
+      accepted: true,
+    }));
+    if (previousDraft) {
+      proposedTasks = preserveManualReviewEdits(
+        proposedTasks,
+        previousDraft.proposedTasks,
+        ["accepted", "title", "minutes", "destination", "startTime", "priorityScore", "priorityReason", "subtasks"]
+      );
+    }
     state.reviewDraft = {
       type: mode,
-      id: createId("dump"),
+      id: previousDraft ? previousDraft.id : createId("dump"),
       sourceText: payload.input,
       summary: normalized.summary,
       warnings,
       questions,
       priorityUpdates: normalized.priorityUpdates,
       answers: {},
-      proposedTasks: preparedTasks.proposals.map((task) => ({
-        ...task,
-        accepted: true,
-      })),
+      guidance: previousDraft ? payload.clarifications : [],
+      revisionNumber: previousDraft ? Number(previousDraft.revisionNumber || 1) + 1 : 1,
+      changeSummary: previousDraft
+        ? buildReviewChangeSummary(previousDraft.proposedTasks, proposedTasks, "task")
+        : [],
+      proposedTasks,
       mergeSuggestions: mergeReview.normalized,
     };
     saveReviewDraft();
-    setStatus(mode === "context_organize" ? "Context draft ready for review." : "Draft ready for review.");
-    openDrawer(els.reviewPanel);
+    setStatus(isRefinement
+      ? "Draft updated with your guidance."
+      : mode === "context_organize" ? "Context draft ready for review." : "Draft ready for review.");
     render();
+    openReviewDrawer({
+      preserveReturnFocus: isRefinement,
+      returnFocus: mode === "context_organize" ? els.contextOrganize : els.analyzeDump,
+    });
   } catch (err) {
     setStatus(readableAIError(err), true);
   } finally {
@@ -2442,39 +2895,72 @@ async function analyzeDump(options = {}) {
   }
 }
 
-async function analyzeTaskBreakdown() {
-  const task = commitTaskEditor({ closeAfter: false, silent: true });
+async function analyzeTaskBreakdown(options = {}) {
+  const isRefinement = options.refine === true;
+  const previousDraft = isRefinement && state.reviewDraft && state.reviewDraft.type === "task_breakdown"
+    ? state.reviewDraft
+    : null;
+  const task = previousDraft
+    ? findTaskById(previousDraft.taskId)
+    : commitTaskEditor({ closeAfter: false, silent: true });
   if (!task) {
-    setStatus("Select a task before requesting a breakdown.", true);
+    setStatus(previousDraft
+      ? "The task for this breakdown no longer exists."
+      : "Select a task before requesting a breakdown.", true);
     return;
   }
 
-  const payload = createBreakdownPayload(task);
-  setStatus("Breaking down task...");
+  const payload = createBreakdownPayload(task, { refine: isRefinement });
+  setStatus(isRefinement ? "Updating breakdown..." : "Breaking down task...");
   els.detailBreakdownAI.disabled = true;
   els.thinkingOverlay.setAttribute("aria-hidden", "false");
   try {
     const result = await requestAIPlan(payload);
     const normalized = ai.normalizeBreakdownResponse(result);
+    const questions = removeAnsweredQuestions(normalized.questions, payload.clarifications);
+    let subtasks = normalized.subtasks.map((subtask) => ({
+      ...subtask,
+      sourceTitle: subtask.title,
+      userEditedFields: [],
+      accepted: true,
+    }));
+    if (previousDraft) {
+      subtasks = preserveManualReviewEdits(
+        subtasks,
+        previousDraft.subtasks,
+        ["accepted", "title", "minutes"]
+      );
+    }
     state.reviewDraft = {
       type: "task_breakdown",
-      id: createId("breakdown"),
+      id: previousDraft ? previousDraft.id : createId("breakdown"),
       taskId: task.id,
       taskTitle: task.name,
-      applyMode: payload.applyMode,
+      applyMode: previousDraft && previousDraft.applyMode === "replace" ? "replace" : "append",
+      instructions: payload.instructions,
+      granularity: payload.granularity,
+      originalSubtasks: previousDraft
+        ? previousDraft.originalSubtasks
+        : task.subtasks.map((subtask) => ({ title: subtask.title, minutes: subtask.minutes })),
       summary: normalized.summary || `Review proposed subtasks for ${task.name}.`,
       warnings: normalized.warnings,
-      questions: normalized.questions,
-      subtasks: normalized.subtasks.map((subtask) => ({
-        ...subtask,
-        accepted: true,
-      })),
+      questions,
+      answers: {},
+      guidance: previousDraft ? payload.clarifications : [],
+      revisionNumber: previousDraft ? Number(previousDraft.revisionNumber || 1) + 1 : 1,
+      changeSummary: previousDraft
+        ? buildReviewChangeSummary(previousDraft.subtasks, subtasks, "step")
+        : [],
+      subtasks,
     };
     saveReviewDraft();
-    setStatus("Breakdown ready for review.");
-    closeTaskDetails();
-    openDrawer(els.reviewPanel);
+    setStatus(isRefinement ? "Breakdown updated with your guidance." : "Breakdown ready for review.");
+    if (!previousDraft) closeTaskDetails();
     renderReview();
+    openReviewDrawer({
+      preserveReturnFocus: isRefinement,
+      returnFocus: document.querySelector('[data-testid="calendar-block"]'),
+    });
   } catch (err) {
     setStatus(readableAIError(err), true);
   } finally {
@@ -2666,8 +3152,8 @@ function applyReviewDraft() {
     ? `, ${mergeCount} merge${mergeCount === 1 ? "" : "s"} applied`
     : "";
   setStatus(`${taskLabel}${mergeLabel}.`);
-  closeDrawer(els.reviewPanel);
   render();
+  closeReviewDrawer();
 }
 
 function applyMergeSuggestions(draft) {
@@ -2706,7 +3192,7 @@ function applyBreakdownReviewDraft(draft) {
     return;
   }
 
-  const accepted = draft.subtasks.filter((subtask) => subtask.accepted && subtask.title.trim());
+  const accepted = getApplicableBreakdownSubtasks(draft);
   const nextSubtasks = accepted.map((subtask) => normalizeSubtask({
     id: createId("subtask"),
     title: subtask.title.trim(),
@@ -2714,22 +3200,37 @@ function applyBreakdownReviewDraft(draft) {
     completed: false,
   })).filter(Boolean);
 
-  task.subtasks = draft.applyMode === "replace"
-    ? nextSubtasks
-    : task.subtasks.concat(nextSubtasks);
+  task.subtasks = draft.applyMode === "replace" ? nextSubtasks : task.subtasks.concat(nextSubtasks);
+  closeReviewDrawer();
   state.reviewDraft = null;
   saveState();
   saveReviewDraft();
-  setStatus(`${accepted.length} subtask${accepted.length === 1 ? "" : "s"} applied.`);
-  closeDrawer(els.reviewPanel);
+  setStatus(`${accepted.length} ${pluralize(accepted.length, "step")} applied.`);
   render();
 }
 
+function getApplicableBreakdownSubtasks(draft) {
+  const accepted = (draft.subtasks || []).filter((subtask) => subtask.accepted && subtask.title.trim());
+  const seen = new Set();
+  if (draft.applyMode !== "replace") {
+    const task = findTaskById(draft.taskId);
+    (task ? task.subtasks : draft.originalSubtasks || []).forEach((subtask) => {
+      seen.add(normalizeComparableTitle(subtask.title));
+    });
+  }
+  return accepted.filter((subtask) => {
+    const title = normalizeComparableTitle(subtask.title);
+    if (!title || seen.has(title)) return false;
+    seen.add(title);
+    return true;
+  });
+}
+
 function discardReviewDraft() {
+  closeReviewDrawer();
   state.reviewDraft = null;
   saveReviewDraft();
   setStatus("AI draft discarded.");
-  closeDrawer(els.reviewPanel);
   render();
 }
 
@@ -2901,10 +3402,20 @@ function setupEvents() {
   els.analyzeDump.addEventListener("click", analyzeDump);
   els.contextOrganize.addEventListener("click", () => analyzeDump({ mode: "context_organize" }));
   els.reanalyzeDump.addEventListener("click", () => {
+    if (state.reviewDraft && state.reviewDraft.type === "task_breakdown") {
+      analyzeTaskBreakdown({ refine: true });
+      return;
+    }
     analyzeDump({
       mode: state.reviewDraft && state.reviewDraft.type === "context_organize" ? "context_organize" : "brain_dump",
       refine: true,
     });
+  });
+  els.reviewBreakdownApplyMode.addEventListener("change", () => {
+    if (!state.reviewDraft || state.reviewDraft.type !== "task_breakdown") return;
+    state.reviewDraft.applyMode = els.reviewBreakdownApplyMode.value === "replace" ? "replace" : "append";
+    saveReviewDraft();
+    renderReviewChrome(state.reviewDraft);
   });
   els.clearDump.addEventListener("click", () => {
     els.brainDump.value = "";
@@ -3032,7 +3543,7 @@ function setupEvents() {
       els.conflictUseLocal.disabled = false;
     }
   });
-  els.closeReview.addEventListener("click", () => closeDrawer(els.reviewPanel));
+  els.closeReview.addEventListener("click", () => closeReviewDrawer());
   els.closeTaskDetails.addEventListener("click", closeTaskDetails);
   els.cancelTaskEditor.addEventListener("click", closeTaskDetails);
   els.detailAddSubtask.addEventListener("click", addEditorSubtask);
@@ -3041,6 +3552,7 @@ function setupEvents() {
     commitTaskEditor();
   });
   document.addEventListener("keydown", (event) => {
+    if (trapReviewFocus(event)) return;
     if (event.key !== "Escape" || els.taskDetailsPanel.getAttribute("aria-hidden") === "true") return;
     if (els.reviewPanel.getAttribute("aria-hidden") === "false" || els.agentExportPanel.getAttribute("aria-hidden") === "false") return;
     closeTaskDetails();
@@ -3372,6 +3884,10 @@ async function boot() {
   restoreTimerState();
   setupEvents();
   render();
+  if (state.reviewDraft) {
+    reviewReturnFocus = els.brainDump;
+    window.requestAnimationFrame(() => els.reviewCard.focus());
+  }
   setupDragAndResize();
   if (!cloud) return;
   await cloud.init({

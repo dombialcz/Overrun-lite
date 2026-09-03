@@ -39,10 +39,10 @@ export class TaskDetailsPageObject {
     if (options.granularity) {
       await this.page.getByTestId("detail-breakdown-granularity").selectOption(options.granularity);
     }
-    if (options.applyMode) {
-      await this.page.getByTestId("detail-breakdown-apply-mode").selectOption(options.applyMode);
-    }
     await this.page.getByTestId("detail-breakdown-ai").click();
+    if (options.applyMode) {
+      await this.page.getByTestId("review-breakdown-apply-mode").selectOption(options.applyMode);
+    }
   }
 
   async exportAgentPrompt(): Promise<void> {

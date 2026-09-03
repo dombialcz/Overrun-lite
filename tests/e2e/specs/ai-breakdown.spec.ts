@@ -78,6 +78,84 @@ test("AI task breakdown is reviewed before applying subtasks", async ({ ui }) =>
   expect(ui.consoleErrors).toEqual([]);
 });
 
+test("task breakdown questions refine in place and preserve user edits", async ({ ui }) => {
+  let requestCount = 0;
+  await ui.page.route("**/chat/completions", async (route) => {
+    requestCount += 1;
+    const body = route.request().postDataJSON();
+    const request = JSON.parse(body.messages[1].content);
+    if (requestCount === 2) {
+      expect(request.clarifications[0].answer).toBe("Existing customers");
+      expect(request.currentDraft.subtasks[0]).toMatchObject({
+        title: "Keep my first step",
+      });
+      expect(request.currentDraft.subtasks[0].userEditedFields)
+        .toEqual(expect.arrayContaining(["title", "minutes"]));
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify(requestCount === 1 ? {
+              summary: "Initial breakdown.",
+              subtasks: [{ title: "Define the audience", minutes: 20 }],
+              questions: [{
+                id: "audience",
+                question: "Who is the launch for?",
+                reason: "The audience changes the steps.",
+              }],
+              warnings: [],
+            } : {
+              summary: "Updated for existing customers.",
+              subtasks: [
+                { title: "AI replacement first step", minutes: 25 },
+                { title: "Draft the customer announcement", minutes: 35 },
+              ],
+              questions: [],
+              warnings: [],
+            }),
+          },
+        }],
+      }),
+    });
+  });
+
+  await ui.calendar.addTask("Prepare customer launch");
+  await ui.calendar.openTask(0);
+  await ui.taskDetails.addSubtask("Collect existing assets", 15);
+  await ui.taskDetails.save();
+  await ui.calendar.openTask(0);
+  await ui.taskDetails.requestBreakdown();
+
+  await expect(ui.page.getByTestId("review-context-title"))
+    .toContainText("Prepare customer launch");
+  await expect(ui.page.getByTestId("review-current-details")).toContainText("1 current step");
+  await expect(ui.page.getByTestId("reanalyze-dump")).toBeDisabled();
+  await ui.aiReview.editBreakdownSubtask(0, "Keep my first step", 20);
+  await ui.page.getByTestId("review-questions").locator("textarea").fill("Existing customers");
+  await expect(ui.page.getByTestId("reanalyze-dump")).toBeEnabled();
+  await ui.page.getByTestId("reanalyze-dump").click();
+
+  await expect(ui.aiReview.heading).toHaveText("Updated breakdown");
+  await expect(ui.aiReview.breakdownSubtasks().first().getByTestId("breakdown-subtask-title"))
+    .toHaveValue("Keep my first step");
+  await expect(ui.page.getByTestId("review-guidance")).toContainText("Existing customers");
+  await expect(ui.page.getByTestId("review-changes")).toContainText("Your manual edits were preserved");
+  await ui.page.getByTestId("review-breakdown-apply-mode").selectOption("replace");
+  await expect(ui.page.getByTestId("apply-review")).toHaveText("Replace 1 step with 2 steps");
+
+  await ui.aiReview.apply();
+  await ui.calendar.openTask(0);
+  await expect(ui.taskDetails.subtasks()).toHaveCount(2);
+  await expect(ui.taskDetails.subtasks().first().getByTestId("detail-subtask-title"))
+    .toHaveValue("Keep my first step");
+  expect(requestCount).toBe(2);
+  expect(ui.consoleErrors).toEqual([]);
+});
+
 test("context organize reviews new tasks and merge suggestions before applying", async ({ ui }) => {
   await ui.page.evaluate(() => {
     localStorage.setItem(
@@ -183,7 +261,7 @@ test("context organize reviews new tasks and merge suggestions before applying",
 
   await ui.inbox.fillDump("Need cake ingredients and maybe launch email wording.");
   await ui.inbox.contextOrganize();
-  await expect(ui.aiReview.heading).toHaveText("Review context organize");
+  await expect(ui.aiReview.heading).toHaveText("Review organized plan");
   await expect(ui.aiReview.mergeSuggestions()).toHaveCount(2);
 
   const storedBeforeApply = await ui.page.evaluate(() =>

@@ -51,6 +51,24 @@ test("planner prompt keeps capture concise and sends complete clarification cont
   ]);
 });
 
+test("planner refinement sends the editable draft and marks manual fields as authoritative", () => {
+  const currentDraft = {
+    proposedTasks: [{
+      title: "User-edited launch task",
+      minutes: 75,
+      userEditedFields: ["title", "minutes"],
+    }],
+  };
+  const messages = ai.buildPlannerMessages({
+    mode: "brain_dump",
+    input: "Prepare launch materials.",
+    currentDraft,
+  });
+
+  assert.match(messages[0].content, /preserve fields listed in userEditedFields/i);
+  assert.deepEqual(JSON.parse(messages[1].content).currentDraft, currentDraft);
+});
+
 test("context organize uses the same streamlined capture guidance", () => {
   const messages = ai.buildPlannerMessages({
     mode: "context_organize",
@@ -264,6 +282,39 @@ test("breakdown normalization accepts subtasks", () => {
     normalized.subtasks.map((item) => item.title),
     ["Inspect current AI flow", "Add review UI"]
   );
+});
+
+test("breakdown refinement sends answers and the editable draft", () => {
+  const messages = ai.buildPlannerMessages({
+    mode: "task_breakdown",
+    task: { id: "task-1", title: "Prepare launch" },
+    clarifications: [{
+      id: "audience",
+      question: "Who is this for?",
+      reason: "Changes the scope.",
+      answer: "Existing customers",
+    }],
+    currentDraft: {
+      subtasks: [{
+        title: "Keep this wording",
+        minutes: 20,
+        userEditedFields: ["title"],
+      }],
+    },
+  });
+
+  assert.match(messages[0].content, /complete updated breakdown/i);
+  const request = JSON.parse(messages[1].content);
+  assert.equal(request.clarifications[0].answer, "Existing customers");
+  assert.equal(request.currentDraft.subtasks[0].title, "Keep this wording");
+});
+
+test("breakdown normalization limits follow-up questions to two", () => {
+  const normalized = ai.normalizeBreakdownResponse({
+    questions: ["First?", "Second?", "Third?"],
+  });
+
+  assert.equal(normalized.questions.length, 2);
 });
 
 test("breakdown normalization accepts steps and item aliases", () => {
