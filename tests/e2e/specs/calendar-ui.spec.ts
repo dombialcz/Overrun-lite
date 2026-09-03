@@ -12,6 +12,31 @@ test("app loads without console errors", async ({ ui }) => {
   expect(ui.consoleErrors).toEqual([]);
 });
 
+test("day header starts and stops the current or next task instead of showing a fixed countdown", async ({ ui }) => {
+  const summary = ui.page.getByTestId("focus-summary");
+  const action = ui.page.getByTestId("header-focus-action");
+
+  await expect(summary).toContainText("No task in focus");
+  await expect(action).toBeHidden();
+  await expect(ui.page.locator("#day-timer")).toHaveCount(0);
+
+  await ui.calendar.addTask("Prepare launch brief");
+  await expect(summary).toContainText("Up next");
+  await expect(summary).toContainText("Prepare launch brief");
+  await expect(action).toHaveText("Start");
+
+  await action.click();
+  await expect(summary).toContainText("In focus");
+  await expect(action).toHaveText("Stop");
+  await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
+
+  await action.click();
+  await expect(summary).toContainText("Up next");
+  await expect(action).toHaveText("Start");
+  await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
+  expect(ui.consoleErrors).toEqual([]);
+});
+
 test("calendar spans 04:00 through 24:00 without shifting existing task times", async ({ ui }) => {
   const labels = ui.calendar.root.locator(".time-labels span");
   await expect(labels).toHaveCount(21);

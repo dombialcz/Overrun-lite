@@ -480,15 +480,43 @@ textarea {
   font-weight: 700;
 }
 
-.timer-summary {
+.focus-summary {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
   margin-left: auto;
-  font-size: 12px;
 }
 
-.timer-summary button {
+.focus-summary-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  text-align: right;
+}
+
+.focus-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.focus-summary.is-active .focus-label {
+  color: var(--accent-dark);
+}
+
+.focus-task {
+  max-width: min(34vw, 360px);
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-action {
+  flex: 0 0 auto;
   padding: 6px 12px;
 }
 
@@ -1801,16 +1829,21 @@ button:disabled {
     display: none;
   }
 
-  .timer-summary {
+  .focus-summary {
     gap: 7px;
     margin-left: 0;
   }
 
-  .timer-summary > span:first-child {
-    display: none;
+  .focus-summary-copy {
+    text-align: right;
   }
 
-  .timer-summary button {
+  .focus-task {
+    max-width: 38vw;
+    font-size: 12px;
+  }
+
+  .focus-action {
     padding: 6px 10px;
   }
 
