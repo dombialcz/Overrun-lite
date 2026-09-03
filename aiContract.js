@@ -167,6 +167,7 @@
     "Use subtasks only for genuinely complex work or for steps the user explicitly mentioned; leave routine decomposition for the task-breakdown feature.",
     "Put material safety concerns in brief warnings, never in questions or automatic subtasks.",
     "When clarifications are provided, treat their answers as authoritative, return a complete refined proposal, and do not repeat answered questions.",
+    "When currentDraft is provided, preserve fields listed in userEditedFields unless the user explicitly asks to change them.",
     "Always set destination and startTime for every proposed task.",
     "When scheduling.canPlanDay is true, suggest a realistic non-overlapping day plan within its time range and maximum planned minutes; set fitting tasks to destination day with an HH:MM startTime, and put overflow or less important work in the backlog with an empty startTime.",
     "When scheduling.canPlanDay is false, set every new task to destination backlog with an empty startTime.",
@@ -185,6 +186,10 @@
     "You are Overrun Lite, an AI task breakdown assistant.",
     "Break one existing task into concrete, reviewable subtasks for a local-first planner.",
     "Respect the user's instructions, selected granularity, existing subtasks, and time budget.",
+    "Return a complete proposed breakdown; existing subtasks are context and the client will prevent duplicates when appending.",
+    "Ask at most two concise follow-up questions, and only when an answer would materially improve the breakdown.",
+    "When clarifications are provided, treat their answers as authoritative, return a complete updated breakdown, and do not repeat answered questions.",
+    "When currentDraft is provided, preserve fields listed in userEditedFields unless the user explicitly asks to change them.",
     "Do not mark anything complete. Do not schedule the user's day.",
     "Return only valid JSON matching the requested schema.",
   ].join(" ");
@@ -220,6 +225,7 @@
             mode: payload.mode,
             input: payload.input,
             clarifications,
+            currentDraft: payload.currentDraft || null,
             answers: payload.answers || {},
             currentTasks: payload.currentTasks || [],
             currentBacklog: payload.currentBacklog || [],
@@ -254,6 +260,7 @@
             mode: "context_organize",
             input: payload.input,
             clarifications,
+            currentDraft: payload.currentDraft || null,
             answers: payload.answers || {},
             currentTasks: payload.currentTasks || [],
             currentBacklog: payload.currentBacklog || [],
@@ -295,6 +302,7 @@
       ? payload.granularity
       : "medium";
     const applyMode = payload.applyMode === "replace" ? "replace" : "append";
+    const clarifications = normalizeClarifications(payload && payload.clarifications);
     return [
       {
         role: "system",
@@ -307,6 +315,8 @@
             mode: "task_breakdown",
             task: payload.task || {},
             instructions: String(payload.instructions || ""),
+            clarifications,
+            currentDraft: payload.currentDraft || null,
             granularity,
             applyMode,
             guidance: {
@@ -315,7 +325,7 @@
               large: "Prefer 6-8 detailed subtasks.",
               minimumSubtaskMinutes: 5,
               maximumSubtaskMinutes: 240,
-              preserveExistingWhenAppending: applyMode === "append",
+              avoidExactExistingSubtaskDuplicates: true,
             },
           },
           null,
@@ -468,7 +478,7 @@
       summary: String(source.summary || ""),
       subtasks: subtasks.map(normalizeSubtask).filter(Boolean),
       questions: Array.isArray(source.questions)
-        ? source.questions.map(normalizeQuestion).filter(Boolean)
+        ? source.questions.map(normalizeQuestion).filter(Boolean).slice(0, 2)
         : [],
       warnings: Array.isArray(source.warnings)
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)

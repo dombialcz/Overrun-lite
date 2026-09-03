@@ -281,10 +281,129 @@ test("brain dump offers at most two optional questions and refines with complete
 
   await ui.page.getByTestId("reanalyze-dump").click();
 
+  await expect(ui.aiReview.heading).toHaveText("Updated plan");
   await expect(ui.page.locator(".proposal-card input[type='text']").first())
     .toHaveValue("Prepare launch materials by next Friday");
   await expect(questions).not.toContainText("When does the launch need to be ready?");
   await expect(questions).toContainText("Who is the launch for?");
+  await expect(ui.page.getByTestId("review-guidance")).toContainText("Next Friday");
+  await expect(ui.page.getByTestId("review-changes")).toContainText("Estimated time changed");
   expect(requestCount).toBe(2);
+  expect(ui.consoleErrors).toEqual([]);
+});
+
+test("refinement preserves manual proposal edits and sends them back as context", async ({ ui }) => {
+  let requestCount = 0;
+  await ui.page.route("**/chat/completions", async (route) => {
+    requestCount += 1;
+    const body = route.request().postDataJSON();
+    const request = JSON.parse(body.messages[1].content);
+    if (requestCount === 2) {
+      expect(request.currentDraft.proposedTasks[0]).toMatchObject({
+        title: "Keep my launch wording",
+        userEditedFields: ["title"],
+      });
+      expect(request.clarifications[0].answer).toBe("Next Friday");
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify(requestCount === 1 ? {
+              summary: "Initial launch draft.",
+              proposedTasks: [{
+                title: "Prepare launch materials",
+                minutes: 60,
+                priorityScore: 65,
+                priorityReason: "Supports the launch.",
+                urgency: 3,
+                impact: 4,
+                subtasks: [],
+              }],
+              questions: [{
+                id: "deadline",
+                question: "When does the launch need to be ready?",
+                reason: "The deadline affects urgency.",
+              }],
+              priorityUpdates: [],
+              warnings: [],
+            } : {
+              summary: "Updated for the confirmed deadline.",
+              proposedTasks: [{
+                title: "AI replacement title",
+                minutes: 90,
+                priorityScore: 82,
+                priorityReason: "The deadline is confirmed.",
+                urgency: 5,
+                impact: 4,
+                subtasks: [],
+              }],
+              questions: [],
+              priorityUpdates: [],
+              warnings: [],
+            }),
+          },
+        }],
+      }),
+    });
+  });
+
+  await ui.inbox.fillDump("Prepare the launch materials.");
+  await ui.page.getByTestId("analyze-dump").click();
+  await ui.page.locator(".proposal-title-input").fill("Keep my launch wording");
+  await ui.page.getByTestId("review-questions").locator("textarea").fill("Next Friday");
+  await ui.page.getByTestId("reanalyze-dump").click();
+
+  await expect(ui.page.locator(".proposal-title-input")).toHaveValue("Keep my launch wording");
+  await expect(ui.page.getByTestId("review-guidance")).toContainText("Next Friday");
+  await expect(ui.page.getByTestId("review-changes")).toContainText("Your manual edits were preserved");
+  expect(requestCount).toBe(2);
+  expect(ui.consoleErrors).toEqual([]);
+});
+
+test("review drawer is modal, keyboard dismissible, and keeps actions visible on mobile", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.page.route("**/chat/completions", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              summary: "A compact review draft.",
+              proposedTasks: [{
+                title: "Prepare launch materials",
+                minutes: 90,
+                priorityScore: 82,
+                priorityReason: "Important launch work.",
+                urgency: 5,
+                impact: 4,
+                subtasks: [{ title: "Draft announcement", minutes: 30 }],
+              }],
+              questions: [],
+              priorityUpdates: [],
+              warnings: [],
+            }),
+          },
+        }],
+      }),
+    });
+  });
+
+  await ui.inbox.fillDump("Prepare launch materials.");
+  await ui.page.getByTestId("analyze-dump").click();
+  await expect(ui.aiReview.drawer).toHaveAttribute("role", "dialog");
+  await expect(ui.aiReview.drawer).toHaveAttribute("aria-modal", "true");
+  await expect(ui.page.getByTestId("review-footer")).toBeInViewport();
+  await expect(ui.page.locator("#review-card")).toBeFocused();
+
+  await ui.page.keyboard.press("Escape");
+  await expect(ui.aiReview.drawer).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.page.getByTestId("analyze-dump")).toBeFocused();
   expect(ui.consoleErrors).toEqual([]);
 });

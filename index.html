@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260806-ai-scheduling" />
+    <link rel="stylesheet" href="styles.css?v=20260903-ai-review" />
   </head>
   <body>
     <div class="bg-layer"></div>
@@ -247,8 +247,16 @@
       </div>
     </aside>
 
-    <aside id="review-panel" class="drawer review-drawer" aria-hidden="true" data-testid="ai-review-drawer">
-      <div class="drawer-card wide">
+    <aside
+      id="review-panel"
+      class="drawer review-drawer"
+      aria-hidden="true"
+      aria-modal="true"
+      aria-labelledby="review-heading"
+      role="dialog"
+      data-testid="ai-review-drawer"
+    >
+      <div id="review-card" class="drawer-card wide review-card" tabindex="-1">
         <div class="drawer-header">
           <div>
             <p class="eyebrow">AI review</p>
@@ -256,13 +264,39 @@
           </div>
           <button id="close-review" class="ghost" data-testid="close-review">Close</button>
         </div>
-        <p id="review-summary" class="helper" data-testid="review-summary"></p>
+        <section id="review-context" class="review-context" aria-labelledby="review-context-title" data-testid="review-context">
+          <div>
+            <p class="eyebrow">Draft context</p>
+            <h3 id="review-context-title" data-testid="review-context-title"></h3>
+          </div>
+          <div id="review-stats" class="review-stat-list" data-testid="review-stats"></div>
+          <details id="review-current-details" class="review-current-details" data-testid="review-current-details">
+            <summary id="review-current-summary"></summary>
+            <ul id="review-current-list"></ul>
+          </details>
+          <label id="review-breakdown-mode-field" class="review-apply-mode" for="review-breakdown-apply-mode">
+            Apply these steps as
+            <select id="review-breakdown-apply-mode" data-testid="review-breakdown-apply-mode">
+              <option value="append">Add to existing steps</option>
+              <option value="replace">Replace existing steps</option>
+            </select>
+          </label>
+        </section>
+        <section id="review-guidance" class="review-guidance" aria-labelledby="review-guidance-heading" data-testid="review-guidance" hidden>
+          <div>
+            <p class="eyebrow">Refinement</p>
+            <h3 id="review-guidance-heading">Your guidance</h3>
+          </div>
+          <dl id="review-guidance-list"></dl>
+          <div id="review-changes" class="review-changes" data-testid="review-changes"></div>
+        </section>
+        <p id="review-summary" class="review-summary" data-testid="review-summary"></p>
         <div id="review-warnings" class="notice-list" data-testid="review-warnings"></div>
         <div id="review-questions" class="review-section" data-testid="review-questions"></div>
         <div id="review-tasks" class="review-section" data-testid="review-tasks"></div>
-        <div class="drawer-actions">
+        <div class="drawer-actions review-footer" data-testid="review-footer">
           <button id="apply-review" class="primary" data-testid="apply-review">Apply accepted tasks</button>
-          <button id="reanalyze-dump" class="ghost" data-testid="reanalyze-dump">Refine with answers</button>
+          <button id="reanalyze-dump" class="ghost" data-testid="reanalyze-dump">Update draft</button>
           <button id="discard-review" class="ghost" data-testid="discard-review">Discard draft</button>
         </div>
       </div>
@@ -447,21 +481,15 @@
                   id="detail-breakdown-instructions"
                   data-testid="detail-breakdown-instructions"
                   rows="3"
-                  placeholder="Optional: focus on implementation steps, testing, or a specific constraint..."
+                  placeholder="Optional: describe the outcome, constraint, or starting point that matters most..."
                 ></textarea>
               </label>
-              <div class="detail-grid">
-                <label for="detail-breakdown-granularity">Granularity
+              <div class="detail-grid breakdown-setup-grid">
+                <label for="detail-breakdown-granularity">Step size
                   <select id="detail-breakdown-granularity" data-testid="detail-breakdown-granularity">
-                    <option value="small">Small</option>
-                    <option value="medium" selected>Medium</option>
-                    <option value="large">Large</option>
-                  </select>
-                </label>
-                <label for="detail-breakdown-apply-mode">Apply mode
-                  <select id="detail-breakdown-apply-mode" data-testid="detail-breakdown-apply-mode">
-                    <option value="append" selected>Append</option>
-                    <option value="replace">Replace</option>
+                    <option value="small">Few larger steps</option>
+                    <option value="medium" selected>Balanced</option>
+                    <option value="large">More smaller steps</option>
                   </select>
                 </label>
               </div>

@@ -31,7 +31,7 @@ export class AiReviewPageObject {
   }
 
   async removeBreakdownSubtask(index: number): Promise<void> {
-    await this.breakdownSubtasks().nth(index).getByRole("button", { name: "Remove" }).click();
+    await this.breakdownSubtasks().nth(index).getByRole("checkbox", { name: /Include/ }).uncheck();
   }
 
   async addBreakdownSubtask(): Promise<void> {
