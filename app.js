@@ -98,7 +98,9 @@ const els = {
   contextOrganize: document.getElementById("context-organize"),
   copyAgentExport: document.getElementById("copy-agent-export"),
   dayReport: document.getElementById("day-report"),
-  dayTimer: document.getElementById("day-timer"),
+  focusLabel: document.getElementById("focus-label"),
+  focusSummary: document.getElementById("focus-summary"),
+  focusTask: document.getElementById("focus-task"),
   detailBacklog: document.getElementById("detail-backlog"),
   detailAISection: document.getElementById("detail-ai-section"),
   detailAddSubtask: document.getElementById("detail-add-subtask"),
@@ -181,7 +183,7 @@ const els = {
   taskDetailsPanel: document.getElementById("task-details-panel"),
   taskEditorForm: document.getElementById("task-editor-form"),
   themeToggle: document.getElementById("theme-toggle"),
-  toggleDay: document.getElementById("toggle-day"),
+  toggleFocus: document.getElementById("toggle-focus"),
   totalTime: document.getElementById("total-time"),
   saveTaskEditor: document.getElementById("save-task-editor"),
   aiUsage: document.getElementById("ai-usage"),
@@ -214,12 +216,6 @@ const taskGestureState = {
 
 const timerState = {
   activeId: null,
-};
-
-const dayTimer = {
-  remainingSeconds: 8 * 60 * 60,
-  intervalId: null,
-  lastTick: 0,
 };
 
 const taskEditorState = {
@@ -801,14 +797,6 @@ function restoreCompletedTask(id) {
   renderBacklog();
 }
 
-function formatTimer(seconds) {
-  const safeSeconds = Math.max(0, seconds);
-  const hours = Math.floor(safeSeconds / 3600);
-  const mins = Math.floor((safeSeconds % 3600) / 60);
-  const secs = safeSeconds % 60;
-  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-}
-
 function formatClockTime(startMinutes) {
   const totalMinutes = STORED_TIME_ORIGIN_HOUR * 60 + clampNumber(
     startMinutes,
@@ -902,46 +890,29 @@ function scheduleTaskOpen(id) {
   }, TASK_MULTI_TAP_DELAY_MS);
 }
 
-function updateDayTimerDisplay() {
-  els.dayTimer.textContent = formatTimer(dayTimer.remainingSeconds);
-  els.toggleDay.textContent = dayTimer.intervalId ? "Pause day" : "Start day";
+function getNextFocusTask() {
+  return [...state.tasks]
+    .filter((task) => !task.completed)
+    .sort((a, b) => a.startMinutes - b.startMinutes || a.name.localeCompare(b.name))[0] || null;
 }
 
-function tickDayTimer() {
-  const now = Date.now();
-  const delta = now - dayTimer.lastTick;
-  dayTimer.lastTick = now;
-  dayTimer.remainingSeconds = Math.max(
-    0,
-    dayTimer.remainingSeconds - Math.floor(delta / 1000)
+function updateFocusSummary() {
+  const activeTask = timerState.activeId
+    ? state.tasks.find((task) => task.id === timerState.activeId && !task.completed)
+    : null;
+  const focusTask = activeTask || getNextFocusTask();
+
+  els.focusSummary.classList.toggle("is-active", Boolean(activeTask));
+  els.focusLabel.textContent = activeTask ? "In focus" : focusTask ? "Up next" : "Today";
+  els.focusTask.textContent = focusTask ? focusTask.name : "No task in focus";
+  els.focusTask.title = focusTask ? focusTask.name : "";
+  els.toggleFocus.hidden = !focusTask;
+  els.toggleFocus.textContent = activeTask ? "Stop" : "Start";
+  els.toggleFocus.dataset.taskId = focusTask ? focusTask.id : "";
+  els.toggleFocus.setAttribute(
+    "aria-label",
+    focusTask ? `${activeTask ? "Stop" : "Start"} ${focusTask.name}` : "No task available to start"
   );
-  updateDayTimerDisplay();
-  if (dayTimer.remainingSeconds === 0) {
-    stopDayTimer();
-  }
-}
-
-function startDayTimer() {
-  if (dayTimer.intervalId) return;
-  dayTimer.lastTick = Date.now();
-  dayTimer.intervalId = setInterval(tickDayTimer, 1000);
-  updateDayTimerDisplay();
-}
-
-function stopDayTimer() {
-  if (dayTimer.intervalId) {
-    clearInterval(dayTimer.intervalId);
-  }
-  dayTimer.intervalId = null;
-  updateDayTimerDisplay();
-}
-
-function toggleDayTimer() {
-  if (dayTimer.intervalId) {
-    stopDayTimer();
-  } else {
-    startDayTimer();
-  }
 }
 
 function scoreToLabel(score) {
@@ -1249,6 +1220,7 @@ function renderCalendar(options = {}) {
     .reduce((sum, task) => sum + task.minutes, 0);
   els.totalTime.textContent = `${formatDuration(totalMinutes)} planned`;
   els.doneTime.textContent = `${formatDuration(doneMinutes)} done`;
+  updateFocusSummary();
 
   const groupInfo = buildSplitGroupInfo();
   const calendarLayout = buildCalendarLayout();
@@ -2348,7 +2320,6 @@ function render() {
   renderCalendar();
   renderSettings();
   renderReview();
-  updateDayTimerDisplay();
   updateAIAvailability();
 }
 
@@ -3424,7 +3395,11 @@ function setupEvents() {
   });
   els.brainDump.addEventListener("input", updateDumpCharCount);
   els.themeToggle.addEventListener("click", toggleTheme);
-  els.toggleDay.addEventListener("click", toggleDayTimer);
+  els.toggleFocus.addEventListener("click", () => {
+    const taskId = els.toggleFocus.dataset.taskId;
+    if (!taskId) return;
+    toggleTaskTimer(taskId);
+  });
   els.openAccount.addEventListener("click", () => {
     setAccountStatus("");
     openDrawer(els.accountPanel);

@@ -35,6 +35,7 @@ All notable changes to Overrun Lite are documented here.
 
 ### Changed
 - **Traceable themed AI review** — AI drafts now use compact theme-aware cards, contextual counts, sticky actions, accessible dialog focus, retained clarification history, visible refinement summaries, and preserved manual edits; task breakdown questions can be answered and refined before choosing whether to add or replace steps.
+- **Task-driven day header** — Replaced the arbitrary eight-hour countdown with a compact current/next-task summary and a direct Start/Stop focus action.
 - **Context-aware inbox emphasis** — Analyze dump remains the primary action for an empty day, while Organize with current plan becomes primary whenever the day view contains tasks.
 - **Focus-only task activation** — Start and Stop now control a single highlighted day item, starting another item transfers the highlight, and the active choice survives refresh without advancing progress or completing the task automatically.
 - **Extended day calendar** — the planner now spans 04:00 through 24:00 while preserving existing tasks at their saved clock times.
