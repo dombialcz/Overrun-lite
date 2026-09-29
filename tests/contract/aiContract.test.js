@@ -3,6 +3,24 @@ const test = require("node:test");
 
 const ai = require("../../aiContract");
 
+test("AI prompts keep schemas stable while requesting the selected response language", () => {
+  const polish = ai.buildPlannerMessages({
+    mode: "brain_dump",
+    locale: "pl",
+    input: "Zaplanuj dzień.",
+  });
+  assert.match(polish[0].content, /natural-language value.*in Polish/i);
+  assert.equal(JSON.parse(polish[1].content).locale, "pl");
+
+  const fallback = ai.buildPlannerMessages({
+    mode: "task_breakdown",
+    locale: "unsupported",
+    task: { title: "Prepare launch" },
+  });
+  assert.match(fallback[0].content, /natural-language value.*in English/i);
+  assert.equal(JSON.parse(fallback[1].content).locale, "en");
+});
+
 test("planner prompt keeps capture concise and sends complete clarification context", () => {
   const messages = ai.buildPlannerMessages({
     mode: "brain_dump",

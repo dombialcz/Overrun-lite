@@ -31,6 +31,7 @@ const DEFAULT_AI_SETTINGS = {
 
 const ai = window.OverrunAI;
 const cloud = window.OverrunCloud;
+const i18n = window.OverrunI18n;
 let activeStorageKey = STORAGE_KEY;
 let activeReviewKey = REVIEW_KEY;
 let activeTimerKey = TIMER_KEY;
@@ -41,6 +42,11 @@ let cloudUser = null;
 let cloudUsage = null;
 let pendingInitialSyncChoice = null;
 let reviewReturnFocus = null;
+let accountLocale = "en";
+let localeSaveInFlight = false;
+let currentSyncStatus = "Local only";
+let currentStatus = { key: "", params: {}, isError: false };
+let currentAccountStatus = { key: "", params: {}, isError: false };
 
 const state = {
   tasks: [],
@@ -64,6 +70,7 @@ const els = {
   activationForm: document.getElementById("activation-form"),
   activationPassword: document.getElementById("activation-password"),
   activationPasswordConfirm: document.getElementById("activation-password-confirm"),
+  activationLanguage: document.getElementById("activation-language"),
   addTask: document.getElementById("add-task"),
   addMeeting: document.getElementById("add-meeting"),
   agentExportPanel: document.getElementById("agent-export-panel"),
@@ -176,6 +183,7 @@ const els = {
   signInForm: document.getElementById("sign-in-form"),
   signOut: document.getElementById("sign-out"),
   settingsPanel: document.getElementById("settings-panel"),
+  settingsLanguage: document.getElementById("settings-language"),
   sortBacklog: document.getElementById("sort-backlog"),
   status: document.getElementById("ai-status"),
   syncConflictPanel: document.getElementById("sync-conflict-panel"),
@@ -188,6 +196,18 @@ const els = {
   saveTaskEditor: document.getElementById("save-task-editor"),
   aiUsage: document.getElementById("ai-usage"),
 };
+
+function t(key, params) {
+  return i18n ? i18n.t(key, params) : key;
+}
+
+function tp(key, count, params) {
+  return i18n ? i18n.plural(key, count, params) : `${count}`;
+}
+
+function currentLocale() {
+  return i18n ? i18n.getLocale() : "en";
+}
 
 const dragState = {
   moveId: null,
@@ -281,8 +301,10 @@ function getSystemTheme() {
 
 function updateThemeToggle(theme) {
   const nextTheme = theme === "dark" ? "light" : "dark";
-  els.themeToggle.textContent = `${nextTheme[0].toUpperCase()}${nextTheme.slice(1)} theme`;
-  els.themeToggle.setAttribute("aria-label", `Switch to ${nextTheme} theme`);
+  const label = nextTheme === "dark" ? "Dark theme" : "Light theme";
+  const ariaLabel = nextTheme === "dark" ? "Switch to dark theme" : "Switch to light theme";
+  els.themeToggle.textContent = t(label);
+  els.themeToggle.setAttribute("aria-label", t(ariaLabel));
 }
 
 function applyTheme(theme) {
@@ -303,6 +325,26 @@ function setupTheme() {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
     if (!getStoredTheme()) applyTheme(event.matches ? "dark" : "light");
   });
+}
+
+function applyAppLocale(locale, { rerender = true } = {}) {
+  const normalized = i18n ? i18n.setLocale(locale) : "en";
+  els.activationLanguage.value = normalized;
+  els.settingsLanguage.value = normalized;
+  updateThemeToggle(document.documentElement.dataset.theme || "light");
+  setSyncStatus(currentSyncStatus);
+  setStatus(currentStatus.key, currentStatus.isError, currentStatus.params);
+  setAccountStatus(currentAccountStatus.key, currentAccountStatus.isError, currentAccountStatus.params);
+  if (rerender) {
+    render();
+    if (cloud) renderAccount(cloud.getSnapshot());
+  }
+  return normalized;
+}
+
+function applyAccountLocale(locale) {
+  accountLocale = i18n ? i18n.normalizeLocale(locale) : "en";
+  applyAppLocale(accountLocale);
 }
 
 function loadState() {
@@ -341,7 +383,7 @@ function saveReviewDraft() {
 }
 
 function clearLocalStorageState() {
-  if (!confirm("Clear local AI settings and API keys from this browser? Current tasks and backlog will be kept.")) {
+  if (!confirm(t("Clear local AI settings and API keys from this browser? Current tasks and backlog will be kept."))) {
     return;
   }
   [SETTINGS_KEY, activeReviewKey].forEach(safeRemove);
@@ -404,6 +446,8 @@ function activateGuest() {
   activeStorageKey = STORAGE_KEY;
   activeReviewKey = REVIEW_KEY;
   activeTimerKey = TIMER_KEY;
+  accountLocale = "en";
+  applyAppLocale("en", { rerender: false });
   loadState();
   if (!timerState.activeId) restoreTimerState();
   render();
@@ -418,9 +462,9 @@ function cancelInitialSyncChoice() {
 
 function chooseInitialSync({ hasCloud }) {
   els.initialSyncCopy.textContent = hasCloud
-    ? "This browser and your account both contain planner data. Choose the complete version to keep."
-    : "This browser contains local planner data. Move it into your account to use it on other devices, or start with an empty account.";
-  els.initialSyncCloud.textContent = hasCloud ? "Use account data" : "Start with empty account";
+    ? t("This browser and your account both contain planner data. Choose the complete version to keep.")
+    : t("This browser contains local planner data. Move it into your account to use it on other devices, or start with an empty account.");
+  els.initialSyncCloud.textContent = t(hasCloud ? "Use account data" : "Start with empty account");
   openDrawer(els.initialSyncPanel);
   return new Promise((resolve) => {
     pendingInitialSyncChoice = resolve;
@@ -460,7 +504,7 @@ function renderAccount(authState = {}) {
   els.retryAuthLink.disabled = authLinkInFlight;
   els.acceptInvite.disabled = authLinkInFlight;
   els.signedInActions.classList.toggle("hidden", !signedIn || passwordSetupRequired || authFlowPending);
-  els.accountHeading.textContent = inviteConfirmationRequired
+  const heading = inviteConfirmationRequired
     ? "Accept invitation"
     : invitePending
       ? "Invitation problem"
@@ -475,7 +519,7 @@ function renderAccount(authState = {}) {
               : signedIn
                 ? "Your account"
                 : "Sign in";
-  els.accountCopy.textContent = inviteConfirmationRequired
+  const copy = inviteConfirmationRequired
     ? "Confirm that you want to accept this invite. The one-time invitation is used only after you continue."
     : invitePending
       ? "This invitation cannot be opened. Ask the person who invited you for a new link."
@@ -492,8 +536,10 @@ function renderAccount(authState = {}) {
                 : cloudCapabilities.authEnabled
                   ? "Accounts are invite-only during the beta. You can keep using this browser locally without signing in."
                   : "Cloud accounts are not configured on this deployment. Your planner remains local to this browser.";
+  els.accountHeading.textContent = t(heading);
+  els.accountCopy.textContent = t(copy);
   els.accountEmailStatus.textContent = signedIn ? cloudUser.email || "" : "";
-  els.openAccount.textContent = signedIn ? cloudUser.email || "Account" : "Sign in";
+  els.openAccount.textContent = signedIn ? cloudUser.email || t("Account") : t("Sign in");
   els.openAccount.disabled = !cloudCapabilities.authEnabled;
   els.openAccount.classList.toggle("hidden", !cloudCapabilities.authEnabled && !signedIn);
   if (authState.authError) {
@@ -506,13 +552,15 @@ function renderAccount(authState = {}) {
   updateAIAvailability();
 }
 
-function setAccountStatus(message, isError = false) {
-  els.accountStatus.textContent = message;
+function setAccountStatus(key, isError = false, params = {}) {
+  currentAccountStatus = { key, params, isError };
+  els.accountStatus.textContent = t(key, params);
   els.accountStatus.classList.toggle("error", isError);
 }
 
 function setSyncStatus(status) {
-  els.syncStatus.textContent = status;
+  currentSyncStatus = status || "Local only";
+  els.syncStatus.textContent = t(currentSyncStatus);
 }
 
 function renderAIUsage(nextUsage) {
@@ -520,11 +568,11 @@ function renderAIUsage(nextUsage) {
   if (!cloudUser) {
     els.aiUsage.textContent = "";
   } else if (nextUsage) {
-    els.aiUsage.textContent = `${nextUsage.used} / ${nextUsage.limit} AI actions today`;
+    els.aiUsage.textContent = t("{used} / {limit} AI actions today", nextUsage);
   } else if (!cloudCapabilities.hostedAvailable) {
-    els.aiUsage.textContent = "Hosted AI unavailable";
+    els.aiUsage.textContent = t("Hosted AI unavailable");
   } else {
-    els.aiUsage.textContent = "AI usage unavailable";
+    els.aiUsage.textContent = t("AI usage unavailable");
   }
   els.aiUsage.classList.toggle(
     "custom-provider",
@@ -532,7 +580,9 @@ function renderAIUsage(nextUsage) {
   );
   if (state.aiSettings.providerMode === "local" && cloudUser) {
     const base = els.aiUsage.textContent;
-    els.aiUsage.textContent = base ? `Using custom settings · ${base}` : "Using custom settings";
+    els.aiUsage.textContent = base
+      ? t("Using custom settings · {base}", { base })
+      : t("Using custom settings");
   }
   updateAIAvailability();
 }
@@ -542,7 +592,7 @@ function updateAIAvailability() {
   const limitReached = Boolean(cloudUsage && cloudUsage.remaining <= 0);
   const hostedDisabled = !cloudUser || !cloudCapabilities.hostedAvailable || limitReached;
   const disabled = !useLocal && hostedDisabled;
-  const reason = !cloudUser
+  const reasonKey = !cloudUser
     ? "Sign in to use hosted AI."
     : !cloudCapabilities.hostedAvailable
       ? "Hosted AI is unavailable on this deployment."
@@ -552,7 +602,7 @@ function updateAIAvailability() {
   [els.analyzeDump, els.contextOrganize, els.reanalyzeDump, els.detailBreakdownAI]
     .forEach((button) => {
       button.disabled = disabled;
-      button.title = disabled ? reason : "";
+      button.title = disabled ? t(reasonKey) : "";
     });
   if (!hasAnsweredClarification(state.reviewDraft)) {
     els.reanalyzeDump.disabled = true;
@@ -575,7 +625,7 @@ function formatDuration(minutes) {
   const safeMinutes = Math.max(0, Math.round(Number(minutes) || 0));
   const hours = Math.floor(safeMinutes / 60);
   const mins = safeMinutes % 60;
-  return `${hours}h ${mins}m`;
+  return t("{hours}h {minutes}m", { hours, minutes: mins });
 }
 
 function createId(prefix = "task") {
@@ -593,7 +643,7 @@ function clampNumber(value, min, max, fallback) {
 
 function normalizeTask(task) {
   const source = task && typeof task === "object" ? task : {};
-  const title = String(source.name || source.title || "Untitled").trim() || "Untitled";
+  const title = String(source.name || source.title || t("Untitled")).trim() || t("Untitled");
   const minutes = clampNumber(source.minutes, MIN_MINUTES, 480, DEFAULT_MINUTES);
   const legacyElapsedMinutes = clampNumber(source.elapsedMinutes, 0, minutes, 0);
   const elapsedSeconds = clampNumber(
@@ -704,7 +754,7 @@ function splitTask(id) {
   const task = state.tasks[taskIndex];
   const totalBlocks = Math.ceil(task.minutes / SEGMENT_BLOCK);
   const segmentCount = Number(
-    prompt("How many segments?", String(Math.min(2, totalBlocks)))
+    prompt(t("How many segments?"), String(Math.min(2, totalBlocks)))
   );
   if (!segmentCount || segmentCount < 2) return;
 
@@ -713,7 +763,7 @@ function splitTask(id) {
     Math.ceil(totalRounded / segmentCount / SEGMENT_BLOCK) * SEGMENT_BLOCK;
   const splitGroupId = task.splitGroupId || task.parentId || task.id;
   const splitTasks = Array.from({ length: segmentCount }, (_, index) =>
-    createTask(`${task.name} (part ${index + 1})`, segmentMinutes, task.type, {
+    createTask(t("{task} (part {index})", { task: task.name, index: index + 1 }), segmentMinutes, task.type, {
       priorityScore: task.priorityScore,
       priorityReason: task.priorityReason,
       urgency: task.urgency,
@@ -893,7 +943,7 @@ function scheduleTaskOpen(id) {
 function getNextFocusTask() {
   return [...state.tasks]
     .filter((task) => !task.completed)
-    .sort((a, b) => a.startMinutes - b.startMinutes || a.name.localeCompare(b.name))[0] || null;
+    .sort((a, b) => a.startMinutes - b.startMinutes || (i18n ? i18n.compare(a.name, b.name) : a.name.localeCompare(b.name)))[0] || null;
 }
 
 function updateFocusSummary() {
@@ -903,15 +953,17 @@ function updateFocusSummary() {
   const focusTask = activeTask || getNextFocusTask();
 
   els.focusSummary.classList.toggle("is-active", Boolean(activeTask));
-  els.focusLabel.textContent = activeTask ? "In focus" : focusTask ? "Up next" : "Today";
-  els.focusTask.textContent = focusTask ? focusTask.name : "No task in focus";
+  els.focusLabel.textContent = t(activeTask ? "In focus" : focusTask ? "Up next" : "Today");
+  els.focusTask.textContent = focusTask ? focusTask.name : t("No task in focus");
   els.focusTask.title = focusTask ? focusTask.name : "";
   els.toggleFocus.hidden = !focusTask;
-  els.toggleFocus.textContent = activeTask ? "Stop" : "Start";
+  els.toggleFocus.textContent = t(activeTask ? "Stop" : "Start");
   els.toggleFocus.dataset.taskId = focusTask ? focusTask.id : "";
   els.toggleFocus.setAttribute(
     "aria-label",
-    focusTask ? `${activeTask ? "Stop" : "Start"} ${focusTask.name}` : "No task available to start"
+    focusTask
+      ? `${t(activeTask ? "Stop" : "Start")} ${focusTask.name}`
+      : t("No task available to start")
   );
 }
 
@@ -938,7 +990,7 @@ function updateDumpCharCount() {
 }
 
 function priorityLabel(task) {
-  return `${scoreToLabel(task.priorityScore)} | Impact ${task.impact}/5 | Urgency ${task.urgency}/5`;
+  return `${t(scoreToLabel(task.priorityScore))} | ${t("Impact")} ${task.impact}/5 | ${t("Urgency")} ${task.urgency}/5`;
 }
 
 function getSubtaskProgress(task) {
@@ -952,7 +1004,9 @@ function getSubtaskProgress(task) {
 function formatSubtaskProgress(task, compact = false) {
   const { completed, total } = getSubtaskProgress(task);
   if (!total) return "";
-  return compact ? `Sub ${completed}/${total}` : `Subtasks ${completed}/${total}`;
+  return compact
+    ? t("Sub {completed}/{total}", { completed, total })
+    : t("Subtasks {completed}/{total}", { completed, total });
 }
 
 function taskOverlaps(a, b) {
@@ -1157,7 +1211,7 @@ function renderBacklog() {
   });
 
   if (!openTasks.length) {
-    els.backlogList.textContent = "Backlog is empty.";
+    els.backlogList.textContent = t("Backlog is empty.");
   }
 
   els.doneBacklogCount.textContent = String(doneTasks.length);
@@ -1166,7 +1220,7 @@ function renderBacklog() {
     els.doneBacklogList.appendChild(createBacklogCard(task, "restore"));
   });
   if (!doneTasks.length) {
-    els.doneBacklogList.textContent = "No completed tasks yet.";
+    els.doneBacklogList.textContent = t("No completed tasks yet.");
   }
 }
 
@@ -1179,8 +1233,8 @@ function createBacklogCard(task, action) {
     card.classList.toggle("done", isDone);
     node.querySelector(".task-title").textContent = task.name;
     node.querySelector(".task-time").textContent = isDone
-      ? `${formatDuration(task.minutes)} completed`
-      : `${formatDuration(task.minutes)} planned`;
+      ? t("{duration} completed", { duration: formatDuration(task.minutes) })
+      : t("{duration} planned", { duration: formatDuration(task.minutes) });
     const subtaskSummary = formatSubtaskProgress(task);
     const metaParts = [
       priorityLabel(task),
@@ -1203,7 +1257,7 @@ function createBacklogCard(task, action) {
       openTaskDetails(task.id, "backlog");
     });
     const button = node.querySelector('[data-action="pick"]');
-    button.textContent = isDone ? "Restore" : "Pick up";
+    button.textContent = t(isDone ? "Restore" : "Pick up");
     button.addEventListener("click", () => {
       if (isDone) restoreCompletedTask(task.id);
       else pickFromBacklog(task.id);
@@ -1218,8 +1272,8 @@ function renderCalendar(options = {}) {
   const doneMinutes = state.tasks
     .filter((task) => task.completed)
     .reduce((sum, task) => sum + task.minutes, 0);
-  els.totalTime.textContent = `${formatDuration(totalMinutes)} planned`;
-  els.doneTime.textContent = `${formatDuration(doneMinutes)} done`;
+  els.totalTime.textContent = t("{duration} planned", { duration: formatDuration(totalMinutes) });
+  els.doneTime.textContent = t("{duration} done", { duration: formatDuration(doneMinutes) });
   updateFocusSummary();
 
   const groupInfo = buildSplitGroupInfo();
@@ -1280,13 +1334,13 @@ function renderCalendar(options = {}) {
     if (group) {
       const part = document.createElement("span");
       part.className = "split-part-label";
-      part.textContent = `Part ${group.index}/${group.count}`;
+      part.textContent = t("Part {index}/{count}", group);
       titleWrap.appendChild(part);
     }
 
     const priorityChip = document.createElement("span");
     priorityChip.className = "priority-chip";
-    priorityChip.textContent = scoreToLabel(task.priorityScore);
+    priorityChip.textContent = t(scoreToLabel(task.priorityScore));
 
     const topMeta = document.createElement("div");
     topMeta.className = "calendar-top-meta";
@@ -1303,15 +1357,15 @@ function renderCalendar(options = {}) {
 
     const meta = document.createElement("span");
     meta.className = "calendar-block-meta";
-    meta.textContent = `${formatClockTime(task.startMinutes)} | Impact ${task.impact}/5 | Urgency ${task.urgency}/5 | ${formatDuration(task.minutes)}`;
+    meta.textContent = `${formatClockTime(task.startMinutes)} | ${t("Impact")} ${task.impact}/5 | ${t("Urgency")} ${task.urgency}/5 | ${formatDuration(task.minutes)}`;
 
     topLine.append(titleWrap, topMeta);
 
     const resizeHandle = document.createElement("span");
     resizeHandle.className = "resize-handle";
     resizeHandle.dataset.testid = "resize-handle";
-    resizeHandle.title = "Drag to resize";
-    resizeHandle.setAttribute("aria-label", `Resize ${task.name}`);
+    resizeHandle.title = t("Drag to resize");
+    resizeHandle.setAttribute("aria-label", t("Resize {task}", { task: task.name }));
     content.append(topLine, meta);
     block.append(content, resizeHandle);
     block.addEventListener("click", (event) => {
@@ -1381,7 +1435,7 @@ function renderCalendar(options = {}) {
 function makeButton(text, onClick) {
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = text;
+  button.textContent = t(text);
   button.addEventListener("click", onClick);
   return button;
 }
@@ -1441,7 +1495,7 @@ function prepareTaskEditorDrawer() {
 }
 
 function openNewTaskEditor(type = "task") {
-  const draft = createTask("Untitled", DEFAULT_MINUTES, type);
+  const draft = createTask(t("Untitled"), DEFAULT_MINUTES, type);
   draft.name = "";
   state.selectedTaskId = draft.id;
   state.selectedTaskLocation = "tasks";
@@ -1479,9 +1533,9 @@ function renderTaskDetails() {
   const isCreate = taskEditorState.mode === "create";
   const isBacklog = taskEditorState.location === "backlog";
   const kind = task.type === "meeting" ? "meeting" : "task";
-  els.detailEyebrow.textContent = isCreate ? "New planner item" : isBacklog ? "Backlog item" : "Day item";
-  els.detailHeading.textContent = `${isCreate ? "Create" : "Edit"} ${kind}`;
-  els.detailTaskTitle.placeholder = kind === "meeting" ? "Meeting title" : "What needs doing?";
+  els.detailEyebrow.textContent = t(isCreate ? "New planner item" : isBacklog ? "Backlog item" : "Day item");
+  els.detailHeading.textContent = t(isCreate ? "Create {kind}" : "Edit {kind}", { kind: t(kind) });
+  els.detailTaskTitle.placeholder = t(kind === "meeting" ? "Meeting title" : "What needs doing?");
   els.detailTaskTitle.value = task.name;
   els.detailTaskStart.value = formatClockTime(task.startMinutes);
   els.detailTaskStartField.hidden = isBacklog;
@@ -1492,16 +1546,18 @@ function renderTaskDetails() {
   els.detailImpact.value = String(task.impact);
   els.detailUrgency.value = String(task.urgency);
   els.detailPriorityReason.value = task.priorityReason;
-  els.detailAdvancedSummary.textContent = `${scoreToLabel(task.priorityScore)} · ${formatDuration(task.elapsedMinutes)} done`;
+  els.detailAdvancedSummary.textContent = `${t(scoreToLabel(task.priorityScore))} · ${t("{duration} done", { duration: formatDuration(task.elapsedMinutes) })}`;
   els.detailTaskActions.hidden = isCreate;
   els.detailAISection.hidden = isCreate;
   els.detailToggleTimer.hidden = isBacklog;
   els.detailToggleDone.hidden = isBacklog;
   els.detailSplit.hidden = isBacklog;
-  els.detailToggleTimer.textContent = timerState.activeId === task.id ? "Stop" : "Start";
-  els.detailToggleDone.textContent = "Done";
-  els.detailBacklog.textContent = isBacklog ? "Pick up" : "Move to backlog";
-  els.saveTaskEditor.textContent = isCreate ? `Create ${kind}` : "Save changes";
+  els.detailToggleTimer.textContent = t(timerState.activeId === task.id ? "Stop" : "Start");
+  els.detailToggleDone.textContent = t("Done");
+  els.detailBacklog.textContent = t(isBacklog ? "Pick up" : "Move to backlog");
+  els.saveTaskEditor.textContent = isCreate
+    ? t("Create {kind}", { kind: t(kind) })
+    : t("Save changes");
   renderDetailSubtasks(task);
 }
 
@@ -1517,7 +1573,7 @@ function renderDetailSubtasks(task) {
   if (!task.subtasks.length) {
     const empty = document.createElement("p");
     empty.className = "helper detail-subtask-empty";
-    empty.textContent = "No subtasks yet.";
+    empty.textContent = t("No subtasks yet.");
     els.detailSubtasks.appendChild(empty);
     return;
   }
@@ -1531,29 +1587,29 @@ function renderDetailSubtasks(task) {
     checkbox.type = "checkbox";
     checkbox.checked = subtask.completed;
     checkbox.dataset.testid = "detail-subtask-completed";
-    checkbox.setAttribute("aria-label", `Mark ${subtask.title || "new subtask"} complete`);
+    checkbox.setAttribute("aria-label", t("Mark {subtask} complete", { subtask: subtask.title || t("new subtask") }));
     checkbox.addEventListener("change", () => {
       subtask.completed = checkbox.checked;
     });
 
     const titleLabel = document.createElement("label");
     titleLabel.className = "detail-subtask-title-field";
-    titleLabel.appendChild(createVisuallyHiddenLabel("Subtask title"));
+    titleLabel.appendChild(createVisuallyHiddenLabel(t("Subtask title")));
     const title = document.createElement("input");
     title.type = "text";
     title.maxLength = 180;
-    title.placeholder = "Subtask title";
+    title.placeholder = t("Subtask title");
     title.value = subtask.title;
     title.dataset.testid = "detail-subtask-title";
     title.addEventListener("input", () => {
       subtask.title = title.value;
-      checkbox.setAttribute("aria-label", `Mark ${title.value.trim() || "new subtask"} complete`);
+      checkbox.setAttribute("aria-label", t("Mark {subtask} complete", { subtask: title.value.trim() || t("new subtask") }));
     });
     titleLabel.appendChild(title);
 
     const minutesLabel = document.createElement("label");
     minutesLabel.className = "detail-subtask-minutes-field";
-    minutesLabel.appendChild(createVisuallyHiddenLabel("Subtask minutes"));
+    minutesLabel.appendChild(createVisuallyHiddenLabel(t("Subtask minutes")));
     const minutes = document.createElement("input");
     minutes.type = "number";
     minutes.min = "5";
@@ -1572,7 +1628,7 @@ function renderDetailSubtasks(task) {
     });
     remove.className = "ghost detail-subtask-remove";
     remove.dataset.testid = "detail-remove-subtask";
-    remove.setAttribute("aria-label", `Remove ${subtask.title || "new subtask"}`);
+    remove.setAttribute("aria-label", t("Remove {subtask}", { subtask: subtask.title || t("new subtask") }));
     row.append(checkbox, titleLabel, minutesLabel, remove);
     els.detailSubtasks.appendChild(row);
   });
@@ -1582,7 +1638,7 @@ function syncTaskEditorDraftFromFields({ validate = false } = {}) {
   const task = taskEditorState.draft;
   if (!task) return null;
   const title = els.detailTaskTitle.value.trim();
-  els.detailTaskTitle.setCustomValidity(title ? "" : "Enter a title.");
+  els.detailTaskTitle.setCustomValidity(title ? "" : t("Enter a title."));
   if (validate && !els.taskEditorForm.reportValidity()) return null;
 
   task.name = title;
@@ -1637,7 +1693,9 @@ function commitTaskEditor({ closeAfter = true, silent = false } = {}) {
 
   saveState();
   if (!silent) {
-    setStatus(mode === "create" ? `${nextTask.type === "meeting" ? "Meeting" : "Task"} created.` : "Task changes saved.");
+    setStatus(mode === "create"
+      ? (nextTask.type === "meeting" ? "Meeting created." : "Task created.")
+      : "Task changes saved.");
   }
   if (closeAfter) {
     resetTaskEditorState();
@@ -1674,7 +1732,7 @@ function removeSelectedTask() {
   const index = collection.findIndex((task) => task.id === state.selectedTaskId);
   if (index === -1) return;
   const itemKind = collection[index].type === "meeting" ? "meeting" : "task";
-  if (!confirm(`Delete this ${itemKind}? This action cannot be undone.`)) return;
+  if (!confirm(t("Delete this {kind}? This action cannot be undone.", { kind: t(itemKind) }))) return;
   const [removed] = collection.splice(index, 1);
   if (timerState.activeId === removed.id) clearTimerSession();
   resetTaskEditorState();
@@ -1684,6 +1742,8 @@ function removeSelectedTask() {
 }
 
 function renderSettings() {
+  els.settingsLanguage.value = currentLocale();
+  els.settingsLanguage.disabled = localeSaveInFlight;
   els.providerMode.value = state.aiSettings.providerMode;
   els.localBaseUrl.value = state.aiSettings.localBaseUrl;
   els.localModel.value = state.aiSettings.localModel;
@@ -1700,16 +1760,17 @@ function renderReview() {
   const isContextDraft = draft.type === "context_organize";
   const hasQuestions = Array.isArray(draft.questions) && draft.questions.length > 0;
   const isUpdated = Number(draft.revisionNumber || 1) > 1;
-  els.reviewHeading.textContent = isUpdated
+  const heading = isUpdated
     ? isBreakdownDraft ? "Updated breakdown" : "Updated plan"
     : isBreakdownDraft
       ? "Review task breakdown"
       : isContextDraft
         ? "Review organized plan"
         : "Review proposed plan";
+  els.reviewHeading.textContent = t(heading);
   els.reanalyzeDump.hidden = !hasQuestions;
-  els.reanalyzeDump.textContent = isUpdated ? "Update draft again" : "Update draft";
-  els.reviewSummary.textContent = draft.summary || "Review the AI proposal before applying it.";
+  els.reanalyzeDump.textContent = t(isUpdated ? "Update draft again" : "Update draft");
+  els.reviewSummary.textContent = draft.summary || t("Review the AI proposal before applying it.");
   els.reviewWarnings.innerHTML = "";
   (draft.warnings || []).forEach((warning) => {
     const item = document.createElement("p");
@@ -1750,11 +1811,11 @@ function renderReviewChrome(draft) {
       ? draft.originalSubtasks
       : liveTask ? liveTask.subtasks : [];
     const proposedMinutes = acceptedSubtasks.reduce((total, subtask) => total + subtask.minutes, 0);
-    const currentLabel = `${originalSubtasks.length} current ${pluralize(originalSubtasks.length, "step")}`;
-    els.reviewContextTitle.textContent = `${isUpdated ? "Updated breakdown for" : "Break down"} “${draft.taskTitle || "Selected task"}”`;
-    appendReviewStat(`${acceptedSubtasks.length} proposed ${pluralize(acceptedSubtasks.length, "step")}`);
+    const currentLabel = tp("review.currentSteps", originalSubtasks.length);
+    els.reviewContextTitle.textContent = `${t(isUpdated ? "Updated breakdown for" : "Break down")} “${draft.taskTitle || t("Selected task")}”`;
+    appendReviewStat(tp("review.proposedSteps", acceptedSubtasks.length));
     appendReviewStat(formatDuration(proposedMinutes));
-    appendReviewStat(draft.applyMode === "replace" ? "Replace current steps" : "Add to current steps");
+    appendReviewStat(t(draft.applyMode === "replace" ? "Replace current steps" : "Add to current steps"));
     els.reviewBreakdownApplyMode.value = draft.applyMode === "replace" ? "replace" : "append";
     if (originalSubtasks.length) {
       els.reviewCurrentDetails.hidden = false;
@@ -1766,8 +1827,8 @@ function renderReviewChrome(draft) {
       });
     }
     els.applyReview.textContent = draft.applyMode === "replace"
-      ? `Replace ${originalSubtasks.length} ${pluralize(originalSubtasks.length, "step")} with ${acceptedSubtasks.length} ${pluralize(acceptedSubtasks.length, "step")}`
-      : `Add ${acceptedSubtasks.length} ${pluralize(acceptedSubtasks.length, "step")}`;
+      ? tp("review.replaceSteps", originalSubtasks.length, { proposed: acceptedSubtasks.length })
+      : tp("review.addSteps", acceptedSubtasks.length);
     els.applyReview.disabled = acceptedSubtasks.length === 0;
     return;
   }
@@ -1775,20 +1836,20 @@ function renderReviewChrome(draft) {
   const plannedCount = acceptedTasks.filter((task) => task.destination === "day").length;
   const backlogCount = acceptedTasks.length - plannedCount;
   const acceptedMinutes = acceptedTasks.reduce((total, task) => total + task.minutes, 0);
-  els.reviewContextTitle.textContent = isUpdated
+  els.reviewContextTitle.textContent = t(isUpdated
     ? "Updated plan based on your guidance"
     : isContextDraft
       ? "New and updated planner items"
-      : "Tasks extracted from your inbox";
-  appendReviewStat(`${acceptedTasks.length} accepted ${pluralize(acceptedTasks.length, "task")}`);
+      : "Tasks extracted from your inbox");
+  appendReviewStat(tp("review.acceptedTasks", acceptedTasks.length));
   appendReviewStat(formatDuration(acceptedMinutes));
-  if (plannedCount) appendReviewStat(`${plannedCount} for today`);
-  if (backlogCount) appendReviewStat(`${backlogCount} for backlog`);
-  if (acceptedMerges.length) appendReviewStat(`${acceptedMerges.length} ${pluralize(acceptedMerges.length, "merge")}`);
+  if (plannedCount) appendReviewStat(tp("review.forToday", plannedCount));
+  if (backlogCount) appendReviewStat(tp("review.forBacklog", backlogCount));
+  if (acceptedMerges.length) appendReviewStat(tp("review.merges", acceptedMerges.length));
   const acceptedChanges = acceptedTasks.length + acceptedMerges.length;
   els.applyReview.textContent = isContextDraft
-    ? `Apply ${acceptedChanges} accepted ${pluralize(acceptedChanges, "change")}`
-    : `Apply ${acceptedTasks.length} ${pluralize(acceptedTasks.length, "task")}`;
+    ? tp("review.applyChanges", acceptedChanges)
+    : tp("review.applyTasks", acceptedTasks.length);
   els.applyReview.disabled = acceptedChanges === 0;
 }
 
@@ -1817,7 +1878,7 @@ function renderReviewGuidance(draft) {
 
   if (changes.length) {
     const heading = document.createElement("h4");
-    heading.textContent = "What changed";
+    heading.textContent = t("What changed");
     const list = document.createElement("ul");
     changes.forEach((change) => {
       const item = document.createElement("li");
@@ -1836,10 +1897,10 @@ function renderReviewQuestions(draft) {
   if (!questions.length) return;
 
   const heading = document.createElement("h3");
-  heading.textContent = "Optional questions";
+  heading.textContent = t("Optional questions");
   const helper = document.createElement("p");
   helper.className = "review-section-intro";
-  helper.textContent = "Answer any question that would materially improve this draft.";
+  helper.textContent = t("Answer any question that would materially improve this draft.");
   els.reviewQuestions.append(heading, helper);
 
   questions.forEach((question) => {
@@ -1850,7 +1911,7 @@ function renderReviewQuestions(draft) {
     hint.textContent = question.reason;
     const input = document.createElement("textarea");
     input.rows = 2;
-    input.placeholder = "Optional answer";
+    input.placeholder = t("Optional answer");
     input.className = "review-answer";
     input.value = draft.answers[question.id] || "";
     input.addEventListener("input", () => {
@@ -1867,12 +1928,12 @@ function renderReviewTasks(draft) {
   els.reviewTasks.innerHTML = "";
   const proposedTasks = Array.isArray(draft.proposedTasks) ? draft.proposedTasks : [];
   const heading = document.createElement("h3");
-  heading.textContent = "Proposed tasks";
+  heading.textContent = t("Proposed tasks");
   els.reviewTasks.appendChild(heading);
   if (!proposedTasks.length) {
     const empty = document.createElement("p");
     empty.className = "helper";
-    empty.textContent = "No tasks were extracted yet.";
+    empty.textContent = t("No tasks were extracted yet.");
     els.reviewTasks.appendChild(empty);
   }
 
@@ -1885,7 +1946,7 @@ function renderReviewTasks(draft) {
     const accept = document.createElement("input");
     accept.type = "checkbox";
     accept.checked = task.accepted;
-    accept.setAttribute("aria-label", `Include ${task.title}`);
+    accept.setAttribute("aria-label", t("Include {item}", { item: task.title }));
     accept.addEventListener("change", () => {
       task.accepted = accept.checked;
       markReviewItemEdited(task, "accepted");
@@ -1897,19 +1958,19 @@ function renderReviewTasks(draft) {
     const acceptLabel = document.createElement("label");
     acceptLabel.className = "proposal-accept";
     const acceptText = document.createElement("span");
-    acceptText.textContent = "Include";
+    acceptText.textContent = t("Include");
     acceptLabel.append(accept, acceptText);
 
     const title = document.createElement("input");
     title.type = "text";
     title.maxLength = 180;
     title.className = "proposal-title-input";
-    title.setAttribute("aria-label", "Task title");
+    title.setAttribute("aria-label", t("Task title"));
     title.value = task.title;
     title.addEventListener("input", () => {
       task.title = title.value;
       markReviewItemEdited(task, "title");
-      accept.setAttribute("aria-label", `Include ${task.title || "task"}`);
+      accept.setAttribute("aria-label", t("Include {item}", { item: task.title || t("task") }));
       saveReviewDraft();
       renderReviewChrome(draft);
     });
@@ -1923,9 +1984,9 @@ function renderReviewTasks(draft) {
     const refreshMetadata = () => {
       durationPill.textContent = formatDuration(task.minutes);
       destinationPill.textContent = task.destination === "day"
-        ? `Today${task.startTime ? ` · ${task.startTime}` : ""}`
-        : "Backlog";
-      priorityPill.textContent = scoreToLabel(task.priorityScore);
+        ? `${t("Today")}${task.startTime ? ` · ${task.startTime}` : ""}`
+        : t("Backlog");
+      priorityPill.textContent = t(scoreToLabel(task.priorityScore));
     };
 
     const minutes = createNumberInput(task.minutes, 10, 480, (value) => {
@@ -1945,8 +2006,8 @@ function renderReviewTasks(draft) {
     const destination = document.createElement("select");
     destination.dataset.testid = "proposal-destination";
     destination.append(
-      new Option("Day planner", "day"),
-      new Option("Backlog", "backlog")
+      new Option(t("Day planner"), "day"),
+      new Option(t("Backlog"), "backlog")
     );
     destination.value = task.destination === "day" ? "day" : "backlog";
     destination.addEventListener("change", () => {
@@ -1991,14 +2052,14 @@ function renderReviewTasks(draft) {
     const subtaskHeader = document.createElement("div");
     subtaskHeader.className = "proposal-subtask-header";
     const subtaskHeading = document.createElement("h4");
-    subtaskHeading.textContent = "Subtasks";
+    subtaskHeading.textContent = t("Subtasks");
     const subtaskList = document.createElement("div");
     subtaskList.className = "proposal-subtasks";
     task.subtasks.forEach((subtask, subtaskIndex) => {
       const subtaskInput = document.createElement("input");
       subtaskInput.type = "text";
       subtaskInput.value = subtask.title;
-      subtaskInput.setAttribute("aria-label", `Subtask ${subtaskIndex + 1}`);
+      subtaskInput.setAttribute("aria-label", t("Subtask {index}", { index: subtaskIndex + 1 }));
       subtaskInput.addEventListener("input", () => {
         subtask.title = subtaskInput.value;
         markReviewItemEdited(task, "subtasks");
@@ -2009,7 +2070,7 @@ function renderReviewTasks(draft) {
         markReviewItemEdited(task, "subtasks");
         saveReviewDraft();
       });
-      subtaskMinutes.setAttribute("aria-label", `Minutes for subtask ${subtaskIndex + 1}`);
+      subtaskMinutes.setAttribute("aria-label", t("Minutes for subtask {index}", { index: subtaskIndex + 1 }));
       const remove = makeButton("Remove", () => {
         task.subtasks.splice(subtaskIndex, 1);
         markReviewItemEdited(task, "subtasks");
@@ -2017,7 +2078,7 @@ function renderReviewTasks(draft) {
         renderReviewTasks(draft);
       });
       remove.className = "ghost compact-button review-row-action";
-      remove.setAttribute("aria-label", `Remove ${subtask.title || "subtask"}`);
+      remove.setAttribute("aria-label", t("Remove {subtask}", { subtask: subtask.title || t("subtask") }));
       const row = document.createElement("div");
       row.className = "subtask-edit-row";
       row.append(subtaskInput, subtaskMinutes, remove);
@@ -2025,7 +2086,7 @@ function renderReviewTasks(draft) {
     });
 
     const addSubtask = makeButton("Add subtask", () => {
-      task.subtasks.push({ title: "New action", minutes: 25 });
+      task.subtasks.push({ title: t("New action"), minutes: 25 });
       markReviewItemEdited(task, "subtasks");
       saveReviewDraft();
       renderReviewTasks(draft);
@@ -2050,7 +2111,7 @@ function renderReviewTasks(draft) {
     const details = document.createElement("details");
     details.className = "proposal-details";
     const detailsSummary = document.createElement("summary");
-    detailsSummary.textContent = "Edit details";
+    detailsSummary.textContent = t("Edit details");
     details.append(detailsSummary, grid, subtaskSection);
     refreshMetadata();
     card.append(header, details);
@@ -2060,13 +2121,13 @@ function renderReviewTasks(draft) {
 
 function renderReviewMergeSuggestions(draft) {
   const heading = document.createElement("h3");
-  heading.textContent = "Merge suggestions";
+  heading.textContent = t("Merge suggestions");
   els.reviewTasks.appendChild(heading);
   const suggestions = Array.isArray(draft.mergeSuggestions) ? draft.mergeSuggestions : [];
   if (!suggestions.length) {
     const empty = document.createElement("p");
     empty.className = "helper";
-    empty.textContent = "No existing tasks were matched for merging.";
+    empty.textContent = t("No existing tasks were matched for merging.");
     els.reviewTasks.appendChild(empty);
     return;
   }
@@ -2091,7 +2152,7 @@ function renderReviewMergeSuggestions(draft) {
     const acceptLabel = document.createElement("label");
     acceptLabel.className = "proposal-accept";
     const acceptText = document.createElement("span");
-    acceptText.textContent = "Include";
+    acceptText.textContent = t("Include");
     acceptLabel.append(accept, acceptText);
 
     const target = document.createElement("input");
@@ -2168,7 +2229,7 @@ function renderReviewMergeSuggestions(draft) {
     });
 
     const addSubtask = makeButton("Add subtask", () => {
-      suggestion.subtasks.push({ title: "New action", minutes: 25, accepted: true });
+      suggestion.subtasks.push({ title: t("New action"), minutes: 25, accepted: true });
       saveReviewDraft();
       renderReview();
     });
@@ -2188,11 +2249,11 @@ function renderReviewMergeSuggestions(draft) {
     header.className = "proposal-card-header merge-card-header";
     const title = document.createElement("h4");
     title.textContent = suggestion.targetTitle || suggestion.taskId;
-    header.append(acceptLabel, title, createReviewPill("Existing task"));
+    header.append(acceptLabel, title, createReviewPill(t("Existing task")));
     const details = document.createElement("details");
     details.className = "proposal-details";
     const detailsSummary = document.createElement("summary");
-    detailsSummary.textContent = "Review merge details";
+    detailsSummary.textContent = t("Review merge details");
     details.append(detailsSummary, mergeReason, grid, subtaskList, addSubtask);
     card.append(header, details);
     els.reviewTasks.appendChild(card);
@@ -2202,12 +2263,12 @@ function renderReviewMergeSuggestions(draft) {
 function renderReviewSubtasks(draft) {
   els.reviewTasks.innerHTML = "";
   const heading = document.createElement("h3");
-  heading.textContent = "Proposed steps";
+  heading.textContent = t("Proposed steps");
   els.reviewTasks.appendChild(heading);
   if (!draft.subtasks.length) {
     const empty = document.createElement("p");
     empty.className = "helper";
-    empty.textContent = "No subtasks were proposed yet.";
+    empty.textContent = t("No subtasks were proposed yet.");
     els.reviewTasks.appendChild(empty);
     return;
   }
@@ -2221,7 +2282,7 @@ function renderReviewSubtasks(draft) {
     const accept = document.createElement("input");
     accept.type = "checkbox";
     accept.checked = subtask.accepted;
-    accept.setAttribute("aria-label", `Include ${subtask.title}`);
+    accept.setAttribute("aria-label", t("Include {item}", { item: subtask.title }));
     accept.addEventListener("change", () => {
       subtask.accepted = accept.checked;
       markReviewItemEdited(subtask, "accepted");
@@ -2233,7 +2294,7 @@ function renderReviewSubtasks(draft) {
     const acceptLabel = document.createElement("label");
     acceptLabel.className = "proposal-accept";
     const acceptText = document.createElement("span");
-    acceptText.textContent = "Include";
+    acceptText.textContent = t("Include");
     acceptLabel.append(accept, acceptText);
 
     const title = document.createElement("input");
@@ -2245,7 +2306,7 @@ function renderReviewSubtasks(draft) {
     title.addEventListener("input", () => {
       subtask.title = title.value;
       markReviewItemEdited(subtask, "title");
-      accept.setAttribute("aria-label", `Include ${subtask.title || "step"}`);
+      accept.setAttribute("aria-label", t("Include {item}", { item: subtask.title || t("step") }));
       saveReviewDraft();
       renderReviewChrome(draft);
     });
@@ -2258,7 +2319,9 @@ function renderReviewSubtasks(draft) {
       saveReviewDraft();
     });
     minutes.dataset.testid = "breakdown-subtask-minutes";
-    minutes.setAttribute("aria-label", `Minutes for ${subtask.title || `step ${index + 1}`}`);
+    minutes.setAttribute("aria-label", t("Minutes for {item}", {
+      item: subtask.title || `${t("step")} ${index + 1}`,
+    }));
     const durationPill = createReviewPill(formatDuration(subtask.minutes));
     const header = document.createElement("div");
     header.className = "proposal-card-header breakdown-card-header";
@@ -2271,7 +2334,7 @@ function renderReviewSubtasks(draft) {
   });
 
   const addSubtask = makeButton("Add subtask", () => {
-    draft.subtasks.push({ title: "New action", minutes: 25, accepted: true });
+    draft.subtasks.push({ title: t("New action"), minutes: 25, accepted: true });
     saveReviewDraft();
     renderReview(draft);
   });
@@ -2292,13 +2355,9 @@ function markReviewItemEdited(item, field) {
   if (!item.userEditedFields.includes(field)) item.userEditedFields.push(field);
 }
 
-function pluralize(count, singular, plural = `${singular}s`) {
-  return count === 1 ? singular : plural;
-}
-
 function makeField(labelText, control) {
   const label = document.createElement("label");
-  label.textContent = labelText;
+  label.textContent = t(labelText);
   label.appendChild(control);
   return label;
 }
@@ -2331,8 +2390,9 @@ function renderInboxActionEmphasis() {
   els.contextOrganize.classList.toggle("ghost", !hasDayTasks);
 }
 
-function setStatus(message, isError = false) {
-  els.status.textContent = message;
+function setStatus(key, isError = false, params = {}) {
+  currentStatus = { key, params, isError };
+  els.status.textContent = t(key, params);
   els.status.classList.toggle("error", isError);
 }
 
@@ -2426,6 +2486,7 @@ function createPlannerPayload(mode = "brain_dump", options = {}) {
     : null;
   return {
     mode,
+    locale: currentLocale(),
     input: refinementDraft && refinementDraft.sourceText
       ? refinementDraft.sourceText
       : els.brainDump.value.trim(),
@@ -2499,6 +2560,7 @@ function createBreakdownPayload(task, options = {}) {
     : null;
   return {
     mode: "task_breakdown",
+    locale: currentLocale(),
     task: summarizeTaskForAI(task),
     instructions: refinementDraft
       ? String(refinementDraft.instructions || "")
@@ -2736,21 +2798,28 @@ function buildReviewChangeSummary(previousItems, nextItems, itemLabel) {
   const next = Array.isArray(nextItems) ? nextItems : [];
   const changes = [];
   if (previous.length !== next.length) {
-    changes.push(`${capitalize(itemLabel)} count changed from ${previous.length} to ${next.length}.`);
+    changes.push(t("{item} count changed from {previous} to {next}.", {
+      item: t(itemLabel === "step" ? "Step" : "Task"),
+      previous: previous.length,
+      next: next.length,
+    }));
   }
   const previousMinutes = previous.reduce((total, item) => total + Number(item.minutes || 0), 0);
   const nextMinutes = next.reduce((total, item) => total + Number(item.minutes || 0), 0);
   if (previousMinutes !== nextMinutes) {
-    changes.push(`Estimated time changed from ${formatDuration(previousMinutes)} to ${formatDuration(nextMinutes)}.`);
+    changes.push(t("Estimated time changed from {previous} to {next}.", {
+      previous: formatDuration(previousMinutes),
+      next: formatDuration(nextMinutes),
+    }));
   }
   const changedTitles = next.filter((item, index) => previous[index]
     && normalizeComparableTitle(previous[index].title) !== normalizeComparableTitle(item.title)).length;
   if (changedTitles) {
-    changes.push(`${changedTitles} ${pluralize(changedTitles, itemLabel)} renamed.`);
+    changes.push(tp(itemLabel === "step" ? "changes.stepsRenamed" : "changes.tasksRenamed", changedTitles));
   }
   const manualEditsPreserved = next.some((item) => (item.userEditedFields || []).length > 0);
-  if (manualEditsPreserved) changes.push("Your manual edits were preserved.");
-  if (!changes.length) changes.push("The draft was refreshed using your guidance.");
+  if (manualEditsPreserved) changes.push(t("Your manual edits were preserved."));
+  if (!changes.length) changes.push(t("The draft was refreshed using your guidance."));
   return changes.slice(0, 4);
 }
 
@@ -2809,17 +2878,17 @@ async function analyzeDump(options = {}) {
     const { filtered, skipped } = filterExistingTaskProposals(normalized.proposedTasks, payload);
     const warnings = [...normalized.warnings];
     if (skipped) {
-      warnings.push(`${skipped} existing task${skipped === 1 ? " was" : "s were"} returned by AI and skipped.`);
+      warnings.push(tp("ai.existingTasksSkipped", skipped));
     }
     const preparedTasks = prepareProposedTasksForReview(filtered, payload.scheduling.canPlanDay);
     if (preparedTasks.overflowCount) {
-      warnings.push(`${preparedTasks.overflowCount} task${preparedTasks.overflowCount === 1 ? " was" : "s were"} kept in the backlog to keep the suggested day within 8 hours and the available calendar range.`);
+      warnings.push(tp("ai.overflowTasks", preparedTasks.overflowCount));
     }
     const mergeReview = mode === "context_organize"
       ? normalizeMergeSuggestionsForReview(normalized.mergeSuggestions)
       : { normalized: [], skipped: 0 };
     if (mergeReview.skipped) {
-      warnings.push(`${mergeReview.skipped} merge suggestion${mergeReview.skipped === 1 ? " referenced" : "s referenced"} missing tasks and skipped.`);
+      warnings.push(tp("ai.mergeSuggestionsSkipped", mergeReview.skipped));
     }
     let proposedTasks = preparedTasks.proposals.map((task) => ({
       ...task,
@@ -2887,7 +2956,7 @@ async function analyzeTaskBreakdown(options = {}) {
   els.thinkingOverlay.setAttribute("aria-hidden", "false");
   try {
     const result = await requestAIPlan(payload);
-    const normalized = ai.normalizeBreakdownResponse(result);
+    const normalized = ai.normalizeBreakdownResponse(result, payload);
     const questions = removeAnsweredQuestions(normalized.questions, payload.clarifications);
     let subtasks = normalized.subtasks.map((subtask) => ({
       ...subtask,
@@ -2913,7 +2982,7 @@ async function analyzeTaskBreakdown(options = {}) {
       originalSubtasks: previousDraft
         ? previousDraft.originalSubtasks
         : task.subtasks.map((subtask) => ({ title: subtask.title, minutes: subtask.minutes })),
-      summary: normalized.summary || `Review proposed subtasks for ${task.name}.`,
+      summary: normalized.summary || t("Review proposed subtasks for {task}.", { task: task.name }),
       warnings: normalized.warnings,
       questions,
       answers: {},
@@ -2950,7 +3019,7 @@ async function requestAIPlan(payload) {
 async function requestVercelAI(payload) {
   const accessToken = cloud ? cloud.getAccessToken() : "";
   if (!accessToken) {
-    throw new Error("Sign in to use hosted AI.");
+    throw new Error(t("Sign in to use hosted AI."));
   }
   const response = await fetch("/api/plan", {
     method: "POST",
@@ -2963,7 +3032,7 @@ async function requestVercelAI(payload) {
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (json.usage) renderAIUsage(json.usage);
-    const error = new Error(json.error || "Vercel AI endpoint failed.");
+    const error = new Error(json.code ? t(apiErrorKey(json.code)) : (json.error || t("Vercel AI endpoint failed.")));
     error.code = json.code || "request_failed";
     throw error;
   }
@@ -2975,7 +3044,7 @@ async function requestLocalAI(payload) {
   const baseUrl = state.aiSettings.localBaseUrl.trim().replace(/\/+$/, "");
   const model = state.aiSettings.localModel.trim();
   if (!baseUrl || !model) {
-    throw new Error("Set a local base URL and model in Settings.");
+    throw new Error(t("Set a local base URL and model in Settings."));
   }
   const messages = ai.buildPlannerMessages(payload);
   const content = await postLocalChatCompletion(baseUrl, model, messages, true).catch(async (err) => {
@@ -2983,7 +3052,7 @@ async function requestLocalAI(payload) {
     return postLocalChatCompletion(baseUrl, model, messages, false);
   });
   const parsed = ai.extractJson(content);
-  if (payload.mode === "task_breakdown") return ai.normalizeBreakdownResponse(parsed);
+  if (payload.mode === "task_breakdown") return ai.normalizeBreakdownResponse(parsed, payload);
   if (payload.mode === "context_organize") return ai.normalizeContextOrganizeResponse(parsed, payload);
   return ai.normalizePlannerResponse(parsed, payload);
 }
@@ -3036,7 +3105,7 @@ async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
   if (!response.ok) {
     const message = json.error && json.error.message
       ? json.error.message
-      : "Local AI request failed.";
+      : t("Local AI request failed.");
     const err = new Error(message);
     err.canRetryWithoutSchema = useSchema && /response_format|json_schema|schema/i.test(message);
     throw err;
@@ -3047,11 +3116,23 @@ async function postLocalChatCompletion(baseUrl, model, messages, useSchema) {
 }
 
 function readableAIError(err) {
-  const message = err && err.message ? err.message : "AI request failed.";
+  const message = err && err.message ? err.message : t("AI request failed.");
   if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
-    return "AI request failed. In local mode, check the base URL and CORS settings.";
+    return t("AI request failed. In local mode, check the base URL and CORS settings.");
   }
   return message;
+}
+
+function apiErrorKey(code) {
+  const keys = {
+    ai_unavailable: "Hosted AI is unavailable on this deployment.",
+    auth_required: "Sign in to use hosted AI.",
+    daily_limit_reached: "Daily hosted AI allowance used.",
+    usage_unavailable: "AI usage unavailable",
+    provider_invalid_response: "Hosted AI returned an invalid response. Please try again.",
+    provider_error: "Hosted AI could not complete the request.",
+  };
+  return keys[code] || "AI request failed.";
 }
 
 function applyPriorityUpdates(updates) {
@@ -3115,14 +3196,7 @@ function applyReviewDraft() {
   const mergeCount = draft.type === "context_organize"
     ? (draft.mergeSuggestions || []).filter((suggestion) => suggestion.accepted).length
     : 0;
-  const taskParts = [];
-  if (plannedCount) taskParts.push(`${plannedCount} task${plannedCount === 1 ? "" : "s"} planned`);
-  if (backlogCount) taskParts.push(`${backlogCount} task${backlogCount === 1 ? "" : "s"} added to backlog`);
-  const taskLabel = taskParts.join(", ") || "No tasks added";
-  const mergeLabel = mergeCount
-    ? `, ${mergeCount} merge${mergeCount === 1 ? "" : "s"} applied`
-    : "";
-  setStatus(`${taskLabel}${mergeLabel}.`);
+  setStatus("review.appliedSummary", false, { plannedCount, backlogCount, mergeCount });
   render();
   closeReviewDrawer();
 }
@@ -3176,7 +3250,7 @@ function applyBreakdownReviewDraft(draft) {
   state.reviewDraft = null;
   saveState();
   saveReviewDraft();
-  setStatus(`${accepted.length} ${pluralize(accepted.length, "step")} applied.`);
+  setStatus("review.stepsApplied", false, { count: accepted.length });
   render();
 }
 
@@ -3207,48 +3281,50 @@ function discardReviewDraft() {
 
 function buildAgentPrompt(task) {
   const status = task.completed
-    ? "done"
+    ? t("done")
     : task.elapsedMinutes > 0
-      ? "in progress"
-      : "open";
+      ? t("in progress")
+      : t("open");
   const subtasks = task.subtasks.length
     ? task.subtasks
         .map((subtask) => `- [${subtask.completed ? "x" : " "}] ${subtask.title} (${formatDuration(subtask.minutes)})`)
         .join("\n")
-    : "- No subtasks recorded.";
+    : t("- No subtasks recorded.");
 
   return [
-    "You are helping me complete a task from Overrun Lite.",
+    t("You are helping me complete a task from Overrun Lite."),
     "",
-    "## Task",
+    t("## Task"),
     task.name,
     "",
-    "## Current Planner Context",
-    `- Status: ${status}`,
-    `- Planned duration: ${formatDuration(task.minutes)}`,
-    `- Done so far: ${formatDuration(task.elapsedMinutes)}`,
-    `- Priority: ${scoreToLabel(task.priorityScore)} (${task.priorityScore}/100)`,
-    `- Impact: ${task.impact}/5`,
-    `- Urgency: ${task.urgency}/5`,
-    `- Scheduled start: ${formatClockTime(task.startMinutes)}`,
-    task.priorityReason ? `- Planner note: ${task.priorityReason}` : "- Planner note: none",
+    t("## Current Planner Context"),
+    t("- Status: {status}", { status }),
+    t("- Planned duration: {duration}", { duration: formatDuration(task.minutes) }),
+    t("- Done so far: {duration}", { duration: formatDuration(task.elapsedMinutes) }),
+    t("- Priority: {priority} ({score}/100)", { priority: t(scoreToLabel(task.priorityScore)), score: task.priorityScore }),
+    t("- Impact: {impact}/5", { impact: task.impact }),
+    t("- Urgency: {urgency}/5", { urgency: task.urgency }),
+    t("- Scheduled start: {time}", { time: formatClockTime(task.startMinutes) }),
+    task.priorityReason
+      ? t("- Planner note: {note}", { note: task.priorityReason })
+      : t("- Planner note: none"),
     "",
-    "## Subtasks",
+    t("## Subtasks"),
     subtasks,
     "",
-    "## Request",
-    "Help me make concrete progress on this task. Start by briefly restating the goal, then propose or perform the next useful steps based on the available context.",
+    t("## Request"),
+    t("Help me make concrete progress on this task. Start by briefly restating the goal, then propose or perform the next useful steps based on the available context."),
     "",
-    "## Constraints",
-    "- Ask clarifying questions if the task is ambiguous or missing required context.",
-    "- Do not mark the task complete unless I explicitly say the work is done.",
-    "- Preserve user control: propose changes before making broad or destructive edits.",
-    "- Keep the output actionable and focused on this task.",
+    t("## Constraints"),
+    t("- Ask clarifying questions if the task is ambiguous or missing required context."),
+    t("- Do not mark the task complete unless I explicitly say the work is done."),
+    t("- Preserve user control: propose changes before making broad or destructive edits."),
+    t("- Keep the output actionable and focused on this task."),
     "",
-    "## Expected Output",
-    "- A concise summary of what you did or recommend.",
-    "- Any files, commands, links, or artifacts I should review.",
-    "- Clear next steps if the task cannot be completed in one pass.",
+    t("## Expected Output"),
+    t("- A concise summary of what you did or recommend."),
+    t("- Any files, commands, links, or artifacts I should review."),
+    t("- Clear next steps if the task cannot be completed in one pass."),
   ].join("\n");
 }
 
@@ -3270,13 +3346,13 @@ async function exportSelectedTaskToAgent() {
   }
   const prompt = buildAgentPrompt(task);
   els.agentExportPrompt.value = prompt;
-  els.agentExportStatus.textContent = "Prompt generated. It is safe to review before using in an agentic tool.";
+  els.agentExportStatus.textContent = t("Prompt generated. It is safe to review before using in an agentic tool.");
   openDrawer(els.agentExportPanel);
   try {
     await copyTextToClipboard(prompt);
-    els.agentExportStatus.textContent = "Prompt generated and copied to clipboard.";
+    els.agentExportStatus.textContent = t("Prompt generated and copied to clipboard.");
   } catch (err) {
-    els.agentExportStatus.textContent = "Prompt generated. Copy it from the field below.";
+    els.agentExportStatus.textContent = t("Prompt generated. Copy it from the field below.");
   }
 }
 
@@ -3300,7 +3376,7 @@ function clearBacklogConfirmed() {
   closeClearBacklogPanel();
   closeDrawer(els.settingsPanel);
   render();
-  setStatus(`${count} open backlog item${count === 1 ? "" : "s"} cleared.`);
+  setStatus("backlog.cleared", false, { count });
 }
 
 function reorderTasks(dragId, targetId) {
@@ -3367,6 +3443,26 @@ function setupDragAndResize() {
   });
 }
 
+async function changeSettingsLocale() {
+  const previous = currentLocale();
+  const next = i18n ? i18n.normalizeLocale(els.settingsLanguage.value) : "en";
+  if (next === previous) return;
+  localeSaveInFlight = Boolean(cloudUser);
+  applyAppLocale(next);
+  if (!cloudUser || !cloud) return;
+  try {
+    await cloud.setLocale(next);
+    accountLocale = next;
+    setStatus("Language saved.");
+  } catch (err) {
+    applyAppLocale(previous);
+    setStatus("Language preference could not be saved.", true);
+  } finally {
+    localeSaveInFlight = false;
+    renderSettings();
+  }
+}
+
 function setupEvents() {
   els.addTask.addEventListener("click", () => openNewTaskEditor("task"));
   els.addMeeting.addEventListener("click", () => openNewTaskEditor("meeting"));
@@ -3395,6 +3491,10 @@ function setupEvents() {
   });
   els.brainDump.addEventListener("input", updateDumpCharCount);
   els.themeToggle.addEventListener("click", toggleTheme);
+  els.activationLanguage.addEventListener("change", () => {
+    applyAppLocale(els.activationLanguage.value);
+  });
+  els.settingsLanguage.addEventListener("change", changeSettingsLocale);
   els.toggleFocus.addEventListener("click", () => {
     const taskId = els.toggleFocus.dataset.taskId;
     if (!taskId) return;
@@ -3463,7 +3563,7 @@ function setupEvents() {
     }
     setAccountStatus("Activating...");
     try {
-      await cloud.setPassword(els.activationPassword.value);
+      await cloud.setPassword(els.activationPassword.value, currentLocale());
       els.activationPassword.value = "";
       els.activationPasswordConfirm.value = "";
       setAccountStatus("Account activated.");
@@ -3545,12 +3645,12 @@ function setupEvents() {
   [els.detailTaskDuration, els.detailTaskProgress].forEach((input) => {
     input.addEventListener("input", () => {
       const minutes = clampNumber(els.detailTaskProgress.value, 0, 480, 0);
-      els.detailAdvancedSummary.textContent = `${els.detailPriorityScore.value} · ${formatDuration(minutes)} done`;
+      els.detailAdvancedSummary.textContent = `${t(els.detailPriorityScore.value)} · ${t("{duration} done", { duration: formatDuration(minutes) })}`;
     });
   });
   els.detailPriorityScore.addEventListener("change", () => {
     const minutes = clampNumber(els.detailTaskProgress.value, 0, 480, 0);
-    els.detailAdvancedSummary.textContent = `${els.detailPriorityScore.value} · ${formatDuration(minutes)} done`;
+    els.detailAdvancedSummary.textContent = `${t(els.detailPriorityScore.value)} · ${t("{duration} done", { duration: formatDuration(minutes) })}`;
   });
   els.detailToggleTimer.addEventListener("click", () => {
     const task = commitTaskEditor({ closeAfter: false, silent: true });
@@ -3572,9 +3672,9 @@ function setupEvents() {
   els.copyAgentExport.addEventListener("click", async () => {
     try {
       await copyTextToClipboard(els.agentExportPrompt.value);
-      els.agentExportStatus.textContent = "Prompt copied to clipboard.";
+      els.agentExportStatus.textContent = t("Prompt copied to clipboard.");
     } catch (err) {
-      els.agentExportStatus.textContent = "Could not copy automatically. Select the prompt and copy it manually.";
+      els.agentExportStatus.textContent = t("Could not copy automatically. Select the prompt and copy it manually.");
     }
   });
   els.detailBreakdownAI.addEventListener("click", analyzeTaskBreakdown);
@@ -3742,7 +3842,7 @@ function importBacklog(event) {
       sortBacklogByPriority();
       saveState();
       render();
-      setStatus(`${imported.length} backlog item${imported.length === 1 ? "" : "s"} imported. ${skipped} duplicate${skipped === 1 ? "" : "s"} skipped.`);
+      setStatus("backlog.imported", false, { imported: imported.length, skipped });
     } catch (err) {
       setStatus("Invalid backlog JSON file.", true);
       console.warn("Invalid backlog file", err);
@@ -3780,7 +3880,7 @@ function importTasksToBacklog(items, sourceId) {
     const normalized = normalizeTask({
       ...source,
       id: createId(),
-      name: source.name || source.title || "Imported task",
+      name: source.name || source.title || t("Imported task"),
       sourceImportId: source.sourceImportId || source.id || source.sourceEventId || source.sourceEventICalUID,
       sourceSnapshotId: source.sourceSnapshotId || sourceId,
     });
@@ -3818,35 +3918,40 @@ function exportDayReport() {
 }
 
 function buildDayReport() {
-  const tasks = [...state.tasks].sort((a, b) => a.startMinutes - b.startMinutes || a.name.localeCompare(b.name));
+  const tasks = [...state.tasks].sort((a, b) => a.startMinutes - b.startMinutes || (i18n ? i18n.compare(a.name, b.name) : a.name.localeCompare(b.name)));
   const summary = buildDaySummary(tasks);
   const lines = [
-    `Overrun Lite day report - ${new Date().toLocaleDateString()}`,
+    t("Overrun Lite day report - {date}", {
+      date: i18n ? i18n.formatDate(new Date()) : new Date().toLocaleDateString(),
+    }),
     "",
-    "Totals",
-    `Planned: ${formatDuration(summary.plannedMinutes)}`,
-    `Done: ${formatDuration(summary.doneMinutes)}`,
-    `Tasks: ${summary.completedTasks} completed, ${summary.inProgressTasks} in progress, ${summary.openTasks} open`,
+    t("Totals"),
+    t("Planned: {duration}", { duration: formatDuration(summary.plannedMinutes) }),
+    t("Done: {duration}", { duration: formatDuration(summary.doneMinutes) }),
+    t("report.taskCounts", summary),
     "",
-    "Hour by hour",
+    t("Hour by hour"),
   ];
 
   if (!tasks.length) {
-    lines.push("No day tasks planned.");
+    lines.push(t("No day tasks planned."));
     return lines.join("\n");
   }
 
   tasks.forEach((task) => {
     const endMinutes = task.startMinutes + task.minutes;
-    const status = task.completed ? "done" : task.elapsedMinutes > 0 ? "in progress" : "open";
+    const status = t(task.completed ? "done" : task.elapsedMinutes > 0 ? "in progress" : "open");
     lines.push(`${formatClockTime(task.startMinutes)}-${formatClockTime(endMinutes)} | ${task.name}`);
-    lines.push(`  ${status}; planned ${formatDuration(task.minutes)}; done ${formatDuration(task.elapsedMinutes)}`);
+    lines.push(`  ${status}; ${t("planned {planned}; done {done}", {
+      planned: formatDuration(task.minutes),
+      done: formatDuration(task.elapsedMinutes),
+    })}`);
     const completedSubtasks = task.subtasks.filter((subtask) => subtask.completed);
     if (completedSubtasks.length) {
-      lines.push(`  completed subtasks: ${completedSubtasks.map((subtask) => subtask.title).join(", ")}`);
+      lines.push(`  ${t("completed subtasks: {subtasks}", { subtasks: completedSubtasks.map((subtask) => subtask.title).join(", ") })}`);
     }
     if (task.priorityReason) {
-      lines.push(`  note: ${task.priorityReason}`);
+      lines.push(`  ${t("note: {note}", { note: task.priorityReason })}`);
     }
   });
 
@@ -3854,6 +3959,7 @@ function buildDayReport() {
 }
 
 async function boot() {
+  if (i18n) i18n.setLocale("en");
   setupTheme();
   loadState();
   restoreTimerState();
@@ -3875,6 +3981,7 @@ async function boot() {
       renderAccount(cloud.getSnapshot());
     },
     onAuth: renderAccount,
+    onLocale: applyAccountLocale,
     onConflict: showSyncConflict,
     onSyncStatus: setSyncStatus,
     onUsage: renderAIUsage,

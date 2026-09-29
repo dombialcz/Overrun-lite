@@ -32,6 +32,21 @@ also gives ordinary dark-theme tasks their controlled maroon emphasis. Light
 mode uses flat white and floral-white surfaces without decorative gradients;
 dark mode keeps its quieter panel treatment.
 
+## Language preference
+
+The interface supports English and Polish. English is always the default; the
+app does not infer a language from the browser. Language changes apply
+immediately from Settings. Guest choices last only until the page is reloaded,
+while signed-in choices are stored in `profiles.locale`, cached per account for
+offline use, and restored on other devices. Invite activation also includes the
+language choice used for the new account.
+
+The selected language covers app messages, accessibility labels, day reports,
+agent prompts, and new AI-generated draft content. Existing task text and saved
+AI drafts are user data and are not translated retroactively. Supabase-managed
+authentication email templates are configured outside this repository and are
+not localized by the app.
+
 ## Task creation and editing
 
 `Add task` and `Add meeting` open a draft editor. Nothing is added to the day
@@ -78,7 +93,8 @@ them as public variables or commit a populated `.env` file.
 
 The migration creates:
 
-- `profiles`, including the administrator-controlled `ai_daily_limit`;
+- `profiles`, including the administrator-controlled `ai_daily_limit` and the
+  user-controlled `locale` (`en` or `pl`);
 - `planner_states`, containing each user's tasks/backlog and sync revision;
 - `ai_daily_usage`, containing server-managed Warsaw-day action counts;
 - atomic database functions for planner saves and AI action reservations.

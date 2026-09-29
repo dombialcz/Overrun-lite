@@ -122,6 +122,19 @@ test("hosted planner identifies invalid provider content", () => {
   });
 });
 
+test("hosted planner accepts Polish locale and defaults unsupported values to English", () => {
+  assert.equal(planHandler.normalizeRequestBody({
+    mode: "brain_dump",
+    input: "Zaplanuj dzień",
+    locale: "pl",
+  }).locale, "pl");
+  assert.equal(planHandler.normalizeRequestBody({
+    mode: "task_breakdown",
+    task: { title: "Prepare launch" },
+    locale: "de",
+  }).locale, "en");
+});
+
 test("AI usage response clamps counters and exposes Warsaw reset data", () => {
   assert.deepEqual(normalizeUsage({
     usage_day: "2026-07-23",

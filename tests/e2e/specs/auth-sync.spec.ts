@@ -9,6 +9,8 @@ type MockCloudOptions = {
   limit?: number;
   conflictOnce?: boolean;
   authLinkFailures?: Array<{ status: number; body: Record<string, unknown> }>;
+  locale?: "en" | "pl";
+  localeSaveFails?: boolean;
 };
 
 const EMPTY_STATE: PlannerState = { tasks: [], backlog: [] };
@@ -251,6 +253,54 @@ test("activation requires a strong matching password and clears the one-time URL
   expect(new URL(ui.page.url()).searchParams.has("activation")).toBe(false);
 });
 
+test("activation applies Polish immediately and stores it with the new account", async ({ ui }) => {
+  const mock = await mockCloud(ui.page);
+  await ui.page.goto(
+    `/?activation=1#access_token=${inviteAccessToken()}&refresh_token=test-refresh-token&type=invite`
+  );
+
+  await ui.page.getByTestId("activation-language").selectOption("pl");
+  await expect(ui.page.locator("html")).toHaveAttribute("lang", "pl");
+  await expect(ui.page.getByTestId("activate-account")).toHaveText("Aktywuj konto");
+
+  await ui.page.getByTestId("activation-password").fill("SecurePlanner1");
+  await ui.page.getByTestId("activation-password-confirm").fill("SecurePlanner1");
+  await ui.page.getByTestId("activate-account").click();
+
+  await expect(ui.page.getByTestId("account-drawer")).toHaveAttribute("aria-hidden", "true");
+  expect(mock.savedLocales).toEqual(["pl"]);
+});
+
+test("account locale loads from the profile and a settings change persists across reloads", async ({ ui }) => {
+  const mock = await mockCloud(ui.page, { locale: "en" });
+  await ui.goto();
+  await signIn(ui.page);
+  await expect(ui.page.getByTestId("sync-status")).toHaveText("Synced");
+
+  await ui.page.locator("#open-settings").click();
+  await ui.page.getByTestId("settings-language").selectOption("pl");
+  await expect(ui.page.locator("html")).toHaveAttribute("lang", "pl");
+  await expect(ui.page.locator("#open-settings")).toHaveText("Ustawienia");
+  await expect.poll(() => mock.savedLocales).toEqual(["pl"]);
+
+  await ui.page.reload();
+  await expect(ui.page.locator("html")).toHaveAttribute("lang", "pl");
+  await expect(ui.page.getByTestId("settings-language")).toHaveValue("pl");
+});
+
+test("failed account locale saves roll the interface back", async ({ ui }) => {
+  await mockCloud(ui.page, { localeSaveFails: true });
+  await ui.goto();
+  await signIn(ui.page);
+
+  await ui.page.locator("#open-settings").click();
+  await ui.page.getByTestId("settings-language").selectOption("pl");
+
+  await expect(ui.page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(ui.page.getByTestId("settings-language")).toHaveValue("en");
+  await expect(ui.page.getByTestId("ai-status")).toHaveText("Language preference could not be saved.");
+});
+
 test("invite wrappers wait for an explicit confirmation before verification", async ({ ui }) => {
   const mock = await mockCloud(ui.page);
   const action = inviteActionUrl();
@@ -372,6 +422,17 @@ test("recovery links open password reset and preserve the existing account", asy
   expect(new URL(ui.page.url()).searchParams.has("recovery")).toBe(false);
 });
 
+test("recovery uses the language stored in the account profile", async ({ ui }) => {
+  await mockCloud(ui.page, { locale: "pl" });
+  await ui.page.goto(
+    `/?recovery=1#access_token=${inviteAccessToken()}&refresh_token=test-refresh-token&type=recovery`
+  );
+
+  await expect(ui.page.getByTestId("recovery-form")).toBeVisible();
+  await expect(ui.page.locator("html")).toHaveAttribute("lang", "pl");
+  await expect(ui.page.getByTestId("reset-password")).toHaveText("Ustaw nowe hasło");
+});
+
 test("recovery callbacks can retry transient failures", async ({ ui }) => {
   const mock = await mockCloud(ui.page, {
     authLinkFailures: [{ status: 503, body: { message: "temporary outage" } }],
@@ -427,6 +488,8 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
   const savedStates: PlannerState[] = [];
   const resetRequests: Array<{ email: string; redirectTo: string }> = [];
   const passwordUpdates: string[] = [];
+  let locale: "en" | "pl" = options.locale || "en";
+  const savedLocales: string[] = [];
 
   await page.route("**/api/config", (route) => route.fulfill({
     contentType: "application/json",
@@ -507,6 +570,21 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
       await json(route, cloudState ? [{ state: cloudState, revision, updated_at: new Date().toISOString() }] : []);
       return;
     }
+    if (url.pathname === "/rest/v1/profiles") {
+      await json(route, [{ locale }]);
+      return;
+    }
+    if (url.pathname === "/rest/v1/rpc/set_profile_locale") {
+      if (options.localeSaveFails) {
+        await json(route, { message: "locale unavailable" }, 503);
+        return;
+      }
+      const body = route.request().postDataJSON();
+      locale = body.p_locale === "pl" ? "pl" : "en";
+      savedLocales.push(locale);
+      await json(route, locale);
+      return;
+    }
     if (url.pathname === "/rest/v1/rpc/save_planner_state") {
       const body = route.request().postDataJSON();
       const nextState = body.p_state as PlannerState;
@@ -546,6 +624,7 @@ async function mockCloud(page: Page, options: MockCloudOptions = {}) {
       return verifyRequests;
     },
     passwordUpdates,
+    savedLocales,
     resetRequests,
     savedStates,
   };
