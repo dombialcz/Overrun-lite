@@ -204,6 +204,16 @@
     "Never claim work is done. Return only valid JSON matching the requested schema.",
   ].join(" ");
 
+  function normalizeLocale(value) {
+    return String(value || "").toLowerCase() === "pl" ? "pl" : "en";
+  }
+
+  function languageInstruction(locale) {
+    return locale === "pl"
+      ? "Write every natural-language value in the JSON response in Polish. Keep JSON property names and enum values exactly as required by the schema."
+      : "Write every natural-language value in the JSON response in English. Keep JSON property names and enum values exactly as required by the schema.";
+  }
+
   function buildPlannerMessages(payload) {
     if (payload && payload.mode === "task_breakdown") {
       return buildBreakdownMessages(payload);
@@ -211,18 +221,20 @@
     if (payload && payload.mode === "context_organize") {
       return buildContextOrganizeMessages(payload);
     }
-    const clarifications = normalizeClarifications(payload && payload.clarifications);
+    const locale = normalizeLocale(payload && payload.locale);
+    const clarifications = normalizeClarifications(payload && payload.clarifications, locale);
     const scheduling = normalizeSchedulingContext(payload);
     return [
       {
         role: "system",
-        content: plannerSystemPrompt,
+        content: `${plannerSystemPrompt} ${languageInstruction(locale)}`,
       },
       {
         role: "user",
         content: JSON.stringify(
           {
             mode: payload.mode,
+            locale,
             input: payload.input,
             clarifications,
             currentDraft: payload.currentDraft || null,
@@ -246,18 +258,20 @@
   }
 
   function buildContextOrganizeMessages(payload) {
-    const clarifications = normalizeClarifications(payload && payload.clarifications);
+    const locale = normalizeLocale(payload && payload.locale);
+    const clarifications = normalizeClarifications(payload && payload.clarifications, locale);
     const scheduling = normalizeSchedulingContext(payload);
     return [
       {
         role: "system",
-        content: contextOrganizeSystemPrompt,
+        content: `${contextOrganizeSystemPrompt} ${languageInstruction(locale)}`,
       },
       {
         role: "user",
         content: JSON.stringify(
           {
             mode: "context_organize",
+            locale,
             input: payload.input,
             clarifications,
             currentDraft: payload.currentDraft || null,
@@ -302,17 +316,19 @@
       ? payload.granularity
       : "medium";
     const applyMode = payload.applyMode === "replace" ? "replace" : "append";
-    const clarifications = normalizeClarifications(payload && payload.clarifications);
+    const locale = normalizeLocale(payload && payload.locale);
+    const clarifications = normalizeClarifications(payload && payload.clarifications, locale);
     return [
       {
         role: "system",
-        content: breakdownSystemPrompt,
+        content: `${breakdownSystemPrompt} ${languageInstruction(locale)}`,
       },
       {
         role: "user",
         content: JSON.stringify(
           {
             mode: "task_breakdown",
+            locale,
             task: payload.task || {},
             instructions: String(payload.instructions || ""),
             clarifications,
@@ -335,7 +351,7 @@
     ];
   }
 
-  function normalizeClarifications(value) {
+  function normalizeClarifications(value, locale = "en") {
     if (!Array.isArray(value)) return [];
     return value
       .map((item, index) => {
@@ -346,7 +362,9 @@
         return {
           id: String(item.id || `question-${index + 1}`),
           question,
-          reason: String(item.reason || "Clarifies the task before planning.").trim(),
+          reason: String(item.reason || localizedFallback(locale,
+            "Clarifies the task before planning.",
+            "Doprecyzowuje zadanie przed planowaniem.")).trim(),
           answer,
         };
       })
@@ -380,19 +398,20 @@
 
   function normalizePlannerResponse(value, context) {
     if (value && value.mode === "task_breakdown") {
-      return normalizeBreakdownResponse(value);
+      return normalizeBreakdownResponse(value, context);
     }
     const source = value && typeof value === "object" ? value : {};
     const proposedTasks = collectTaskProposals(source);
     const scheduling = normalizeSchedulingContext(context);
+    const locale = normalizeLocale(context && context.locale);
     return {
       summary: String(source.summary || ""),
-      proposedTasks: proposedTasks.map((item) => normalizeTaskProposal(item, scheduling)).filter(Boolean),
+      proposedTasks: proposedTasks.map((item) => normalizeTaskProposal(item, scheduling, locale)).filter(Boolean),
       questions: Array.isArray(source.questions)
-        ? source.questions.map(normalizeQuestion).filter(Boolean).slice(0, 2)
+        ? source.questions.map((item, index) => normalizeQuestion(item, index, locale)).filter(Boolean).slice(0, 2)
         : [],
       priorityUpdates: Array.isArray(source.priorityUpdates)
-        ? source.priorityUpdates.map(normalizePriorityUpdate).filter(Boolean)
+        ? source.priorityUpdates.map((item) => normalizePriorityUpdate(item, locale)).filter(Boolean)
         : [],
       warnings: Array.isArray(source.warnings)
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
@@ -404,14 +423,15 @@
     const source = value && typeof value === "object" ? value : {};
     const proposedTasks = collectTaskProposals(source);
     const scheduling = normalizeSchedulingContext(context);
+    const locale = normalizeLocale(context && context.locale);
     return {
       summary: String(source.summary || ""),
-      proposedTasks: proposedTasks.map((item) => normalizeTaskProposal(item, scheduling)).filter(Boolean),
+      proposedTasks: proposedTasks.map((item) => normalizeTaskProposal(item, scheduling, locale)).filter(Boolean),
       mergeSuggestions: collectMergeSuggestions(source)
-        .map((item) => normalizeMergeSuggestion(item, context))
+        .map((item) => normalizeMergeSuggestion(item, context, locale))
         .filter(Boolean),
       questions: Array.isArray(source.questions)
-        ? source.questions.map(normalizeQuestion).filter(Boolean).slice(0, 2)
+        ? source.questions.map((item, index) => normalizeQuestion(item, index, locale)).filter(Boolean).slice(0, 2)
         : [],
       warnings: Array.isArray(source.warnings)
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
@@ -430,7 +450,7 @@
     ];
   }
 
-  function normalizeTaskProposal(item, scheduling) {
+  function normalizeTaskProposal(item, scheduling, locale) {
     if (!item || typeof item !== "object") return null;
     const title = String(item.title || item.task || item.name || "").trim();
     if (!title) return null;
@@ -440,7 +460,9 @@
       title,
       minutes,
       priorityScore: clampInt(item.priorityScore || item.priority, 1, 100, 50),
-      priorityReason: String(item.priorityReason || item.description || "Impact and urgency estimate.").trim(),
+      priorityReason: String(item.priorityReason || item.description || localizedFallback(locale,
+        "Impact and urgency estimate.",
+        "Oszacowanie wpływu i pilności.")).trim(),
       urgency: clampInt(item.urgency, 1, 5, 3),
       impact: clampInt(item.impact, 1, 5, 3),
       destination,
@@ -471,14 +493,15 @@
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   }
 
-  function normalizeBreakdownResponse(value) {
+  function normalizeBreakdownResponse(value, context) {
     const source = value && typeof value === "object" ? value : {};
     const subtasks = collectSubtasks(source);
+    const locale = normalizeLocale(context && context.locale);
     return {
       summary: String(source.summary || ""),
       subtasks: subtasks.map(normalizeSubtask).filter(Boolean),
       questions: Array.isArray(source.questions)
-        ? source.questions.map(normalizeQuestion).filter(Boolean).slice(0, 2)
+        ? source.questions.map((item, index) => normalizeQuestion(item, index, locale)).filter(Boolean).slice(0, 2)
         : [],
       warnings: Array.isArray(source.warnings)
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
@@ -493,15 +516,19 @@
     return [];
   }
 
-  function normalizeMergeSuggestion(item, context) {
+  function normalizeMergeSuggestion(item, context, locale) {
     if (!item || typeof item !== "object") return null;
     const taskId = String(item.taskId || item.id || item.targetTaskId || "").trim();
     if (!taskId || !isKnownTaskId(taskId, context)) return null;
     return {
       taskId,
-      reason: String(item.reason || item.mergeReason || "Similar to the new brain dump.").trim(),
+      reason: String(item.reason || item.mergeReason || localizedFallback(locale,
+        "Similar to the new brain dump.",
+        "Podobne do nowego zrzutu myśli.")).trim(),
       priorityScore: clampInt(item.priorityScore || item.priority, 1, 100, 50),
-      priorityReason: String(item.priorityReason || item.description || "Updated from latest brain dump.").trim(),
+      priorityReason: String(item.priorityReason || item.description || localizedFallback(locale,
+        "Updated from latest brain dump.",
+        "Zaktualizowano na podstawie najnowszego zrzutu myśli.")).trim(),
       urgency: clampInt(item.urgency, 1, 5, 3),
       impact: clampInt(item.impact, 1, 5, 3),
       subtasks: Array.isArray(item.subtasks)
@@ -545,14 +572,16 @@
     };
   }
 
-  function normalizeQuestion(item, index) {
+  function normalizeQuestion(item, index, locale) {
     if (typeof item === "string") {
       const questionText = item.trim();
       if (!questionText) return null;
       return {
         id: `question-${index + 1}`,
         question: questionText,
-        reason: "Clarifies the task before planning.",
+        reason: localizedFallback(locale,
+          "Clarifies the task before planning.",
+          "Doprecyzowuje zadanie przed planowaniem."),
       };
     }
     if (!item || typeof item !== "object") return null;
@@ -561,19 +590,27 @@
     return {
       id: String(item.id || `question-${index + 1}`),
       question,
-      reason: String(item.reason || "Clarifies the task before planning.").trim(),
+      reason: String(item.reason || localizedFallback(locale,
+        "Clarifies the task before planning.",
+        "Doprecyzowuje zadanie przed planowaniem.")).trim(),
     };
   }
 
-  function normalizePriorityUpdate(item) {
+  function normalizePriorityUpdate(item, locale) {
     if (!item || typeof item !== "object") return null;
     const taskId = String(item.taskId || "").trim();
     if (!taskId) return null;
     return {
       taskId,
       priorityScore: clampInt(item.priorityScore, 1, 100, 50),
-      priorityReason: String(item.priorityReason || "Updated from latest brain dump.").trim(),
+      priorityReason: String(item.priorityReason || localizedFallback(locale,
+        "Updated from latest brain dump.",
+        "Zaktualizowano na podstawie najnowszego zrzutu myśli.")).trim(),
     };
+  }
+
+  function localizedFallback(locale, english, polish) {
+    return normalizeLocale(locale) === "pl" ? polish : english;
   }
 
   function clampInt(value, min, max, fallback) {
@@ -604,6 +641,7 @@
     normalizeBreakdownResponse,
     normalizeClarifications,
     normalizeContextOrganizeResponse,
+    normalizeLocale,
     normalizePlannerResponse,
     normalizeSchedulingContext,
     extractJson,

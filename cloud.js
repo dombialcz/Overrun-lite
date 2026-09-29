@@ -2,6 +2,7 @@
   const EMPTY_STATE = { tasks: [], backlog: [] };
   const ACCOUNT_CACHE_PREFIX = "overrun_lite_state:";
   const ACCOUNT_REVISION_PREFIX = "overrun_lite_revision:";
+  const ACCOUNT_LOCALE_PREFIX = "overrun_lite_locale:";
   const PENDING_INVITE_KEY = "overrun_lite_pending_invite_url";
   const PASSWORD_SETUP_KEY = "overrun_lite_password_setup";
   const SYNC_DELAY_MS = 750;
@@ -27,6 +28,17 @@
   let authLinkInFlight = false;
   let pendingInviteActionUrl = "";
   let passwordSetupContext = null;
+  let profileLocale = "en";
+
+  function t(key, params) {
+    return global.OverrunI18n ? global.OverrunI18n.t(key, params) : key;
+  }
+
+  function normalizeLocale(locale) {
+    return global.OverrunI18n
+      ? global.OverrunI18n.normalizeLocale(locale)
+      : (locale === "pl" ? "pl" : "en");
+  }
 
   async function init(nextCallbacks = {}) {
     callbacks = nextCallbacks;
@@ -40,7 +52,7 @@
     emitCapabilities();
     if (!config.auth.enabled || !global.supabase || !global.supabase.createClient) {
       if (isAuthFlowRequested() && !authLinkError) {
-        authLinkError = "Account links are unavailable on this deployment.";
+        authLinkError = t("Account links are unavailable on this deployment.");
       }
       emitAuth();
       emitSync("Local only");
@@ -143,28 +155,29 @@
       email: String(email || "").trim(),
       password: String(password || ""),
     });
-    if (error) throw new Error("Email or password is incorrect.");
+    if (error) throw new Error(t("Email or password is incorrect."));
   }
 
   async function requestPasswordReset(email) {
     ensureClient();
     const normalizedEmail = String(email || "").trim().toLowerCase();
     if (!normalizedEmail || !normalizedEmail.includes("@")) {
-      throw new Error("Enter your account email first.");
+      throw new Error(t("Enter your account email first."));
     }
     const redirect = new URL("/?recovery=1", global.location.origin);
     const { error } = await client.auth.resetPasswordForEmail(normalizedEmail, {
       redirectTo: redirect.toString(),
     });
-    if (error) throw new Error("Could not send a password reset email. Try again later.");
+    if (error) throw new Error(t("Could not send a password reset email. Try again later."));
   }
 
-  async function setPassword(password) {
+  async function setPassword(password, locale) {
     ensureClient();
     if (!isVerifiedPasswordSetup()) throw new Error(authLinkExpiredMessage());
     validatePassword(password);
+    if (locale !== undefined) await setLocale(locale);
     const { error } = await client.auth.updateUser({ password });
-    if (error) throw new Error(error.message || "Could not set the password.");
+    if (error) throw new Error(t("Could not set the password."));
     authLinkError = "";
     clearPasswordSetupContext();
     const url = new URL(global.location.href);
@@ -179,9 +192,10 @@
     if (!client || !user) return;
     const userId = user.id;
     const { error } = await client.auth.signOut({ scope: "local" });
-    if (error) throw new Error("Could not sign out.");
+    if (error) throw new Error(t("Could not sign out."));
     safeRemove(`${ACCOUNT_CACHE_PREFIX}${userId}`);
     safeRemove(`${ACCOUNT_REVISION_PREFIX}${userId}`);
+    safeRemove(`${ACCOUNT_LOCALE_PREFIX}${userId}`);
   }
 
   function validatePassword(password) {
@@ -192,7 +206,7 @@
       || !/[A-Z]/.test(value)
       || !/\d/.test(value)
     ) {
-      throw new Error("Use at least 12 characters with upper and lowercase letters and a number.");
+      throw new Error(t("Use at least 12 characters with upper and lowercase letters and a number."));
     }
   }
 
@@ -247,6 +261,7 @@
 
   async function reconcileAccount(nextUser, version) {
     emitSync("Loading");
+    const localePromise = loadProfileLocale(nextUser.id);
     const localGuest = cloneState(
       callbacks.getPlannerState ? callbacks.getPlannerState() : EMPTY_STATE
     );
@@ -282,7 +297,7 @@
 
       if (choice === "local") {
         const saved = await saveNow(localGuest, { allowConflictPrompt: false });
-        if (!saved) throw new Error("Could not move local data into the account.");
+        if (!saved) throw new Error(t("Could not move local data into the account."));
         if (!isCurrentConnection(nextUser.id, version)) return false;
         safeRemove("overrun_lite_state");
         activateAccount(nextUser.id, localGuest);
@@ -293,6 +308,7 @@
         activateAccount(nextUser.id, cloudState || EMPTY_STATE);
       }
       connectedUserId = nextUser.id;
+      await localePromise;
       safeSet(cacheKey, JSON.stringify(callbacks.getPlannerState()));
       safeSet(`${ACCOUNT_REVISION_PREFIX}${nextUser.id}`, String(revision));
       emitSync("Synced");
@@ -308,6 +324,7 @@
         activateAccount(nextUser.id, EMPTY_STATE);
       }
       connectedUserId = nextUser.id;
+      await localePromise;
       emitSync("Offline");
       return false;
     }
@@ -315,6 +332,48 @@
 
   function activateAccount(userId, plannerState) {
     callbacks.onAccount && callbacks.onAccount(userId, cloneState(plannerState));
+  }
+
+  async function loadProfileLocale(userId) {
+    const cacheKey = `${ACCOUNT_LOCALE_PREFIX}${userId}`;
+    const cached = safeGet(cacheKey);
+    let nextLocale = cached === "en" || cached === "pl" ? cached : "en";
+    try {
+      const { data, error } = await client
+        .from("profiles")
+        .select("locale")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) throw error;
+      nextLocale = normalizeLocale(data && data.locale);
+      safeSet(cacheKey, nextLocale);
+    } catch (err) {
+      // Keep an account-specific cached locale available while offline.
+    }
+    if (!user || user.id !== userId) return nextLocale;
+    profileLocale = nextLocale;
+    callbacks.onLocale && callbacks.onLocale(nextLocale);
+    return nextLocale;
+  }
+
+  async function setLocale(locale) {
+    ensureClient();
+    if (!user) throw new Error(t("Sign in"));
+    const requested = String(locale || "").toLowerCase();
+    if (requested !== "en" && requested !== "pl") {
+      throw new Error(t("Language preference could not be saved."));
+    }
+    const userId = user.id;
+    const { data, error } = await client.rpc("set_profile_locale", {
+      p_locale: requested,
+    });
+    if (error || !user || user.id !== userId) {
+      throw new Error(t("Language preference could not be saved."));
+    }
+    profileLocale = normalizeLocale(typeof data === "string" ? data : requested);
+    safeSet(`${ACCOUNT_LOCALE_PREFIX}${userId}`, profileLocale);
+    callbacks.onLocale && callbacks.onLocale(profileLocale);
+    return profileLocale;
   }
 
   function scheduleSave(plannerState) {
@@ -343,7 +402,7 @@
       throw error;
     }
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row) throw new Error("Cloud save returned no state.");
+    if (!row) throw new Error(t("Cloud save returned no state."));
     if (!row.saved) {
       conflict = {
         localState,
@@ -424,6 +483,7 @@
       authRetryAvailable,
       authLinkInFlight,
       authError: authLinkError,
+      locale: profileLocale,
     };
   }
 
@@ -470,7 +530,7 @@
   }
 
   function ensureClient() {
-    if (!client) throw new Error("Cloud accounts are not configured on this deployment.");
+    if (!client) throw new Error(t("Cloud accounts are not configured on this deployment."));
   }
 
   function hasPlannerData(value) {
@@ -576,15 +636,15 @@
   }
 
   function authLinkExpiredMessage() {
-    return isRecovery()
+    return t(isRecovery()
       ? "This password reset link is expired or has already been used. Request a new password reset email."
-      : "This invitation is expired or has already been used. Ask the person who invited you for a new link.";
+      : "This invitation is expired or has already been used. Ask the person who invited you for a new link.");
   }
 
   function authLinkFailureMessage() {
-    return isRecovery()
+    return t(isRecovery()
       ? "We could not verify this password reset link. Check your connection and try again."
-      : "We could not verify this invitation. Check your connection and try again.";
+      : "We could not verify this invitation. Check your connection and try again.");
   }
 
   function clearAuthFragment() {
@@ -619,12 +679,12 @@
     }
     pendingInviteActionUrl = "";
     removeSessionValue(PENDING_INVITE_KEY);
-    authLinkError = "This invitation link is invalid. Ask the person who invited you for a new link.";
+    authLinkError = t("This invitation link is invalid. Ask the person who invited you for a new link.");
   }
 
   function acceptInvite() {
     if (!inviteConfirmationRequired || !pendingInviteActionUrl) {
-      throw new Error("This invitation link is invalid. Ask for a new link.");
+      throw new Error(t("This invitation link is invalid. Ask for a new link."));
     }
     const validation = global.OverrunAuthLink.validateInviteActionUrl(pendingInviteActionUrl, {
       supabaseUrl: config.auth.url,
@@ -633,7 +693,7 @@
     if (!validation) {
       prepareInviteConfirmation();
       emitAuth();
-      throw new Error("This invitation link is invalid. Ask for a new link.");
+      throw new Error(t("This invitation link is invalid. Ask for a new link."));
     }
     global.location.replace(pendingInviteActionUrl);
   }
@@ -666,6 +726,7 @@
       }
       session = data.session;
       user = data.session.user;
+      await loadProfileLocale(user.id);
       passwordSetupContext = {
         mode: isRecovery() ? "recovery" : "activation",
         userId: user.id,
@@ -770,6 +831,7 @@
     resolveConflict,
     scheduleSave,
     setPassword,
+    setLocale,
     signIn,
     signOut,
     validatePassword,

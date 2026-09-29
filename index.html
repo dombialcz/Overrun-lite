@@ -23,25 +23,27 @@
       <div class="topbar-main">
         <div>
           <p class="logo">Overrun Lite</p>
-          <p class="tagline">AI-assisted daily planning</p>
+          <p class="tagline" data-i18n="AI-assisted daily planning">AI-assisted daily planning</p>
         </div>
         <div class="utility-actions">
           <div class="sync-summary">
-            <span id="sync-status" data-testid="sync-status">Local only</span>
+            <span id="sync-status" data-testid="sync-status" data-i18n="Local only">Local only</span>
           </div>
-          <button id="open-account" class="ghost" data-testid="open-account">Sign in</button>
+          <button id="open-account" class="ghost" data-testid="open-account" data-i18n="Sign in">Sign in</button>
           <button
             id="theme-toggle"
             class="ghost"
             type="button"
             data-testid="theme-toggle"
             aria-label="Switch to dark theme"
+            data-i18n="Dark theme"
+            data-i18n-aria-label="Switch to dark theme"
           >Dark theme</button>
-          <button id="open-settings" class="ghost">Settings</button>
+          <button id="open-settings" class="ghost" data-i18n="Settings">Settings</button>
         </div>
       </div>
-      <div class="today-strip" aria-label="Today overview">
-        <span class="today-label">Today</span>
+      <div class="today-strip" aria-label="Today overview" data-i18n-aria-label="Today overview">
+        <span class="today-label" data-i18n="Today">Today</span>
         <div class="today-totals">
           <span id="total-time">0h 0m planned</span>
           <span class="summary-divider" aria-hidden="true"></span>
@@ -49,10 +51,10 @@
         </div>
         <div id="focus-summary" class="focus-summary" data-testid="focus-summary" aria-live="polite">
           <div class="focus-summary-copy">
-            <span id="focus-label" class="focus-label">Today</span>
-            <strong id="focus-task" class="focus-task">No task in focus</strong>
+            <span id="focus-label" class="focus-label" data-i18n="Today">Today</span>
+            <strong id="focus-task" class="focus-task" data-i18n="No task in focus">No task in focus</strong>
           </div>
-          <button id="toggle-focus" class="ghost focus-action" type="button" data-testid="header-focus-action" hidden>Start</button>
+          <button id="toggle-focus" class="ghost focus-action" type="button" data-testid="header-focus-action" data-i18n="Start" hidden>Start</button>
         </div>
       </div>
     </header>
@@ -60,26 +62,27 @@
     <section class="inbox-shell" data-testid="inbox">
       <div class="inbox-panel">
         <div class="inbox-copy">
-          <p class="eyebrow">Brain dump</p>
-          <h1>Dump everything on your mind.</h1>
-          <p class="helper">
+          <p class="eyebrow" data-i18n="Brain dump">Brain dump</p>
+          <h1 data-i18n="Dump everything on your mind.">Dump everything on your mind.</h1>
+          <p class="helper" data-i18n="AI turns this into prioritized draft tasks. You review everything before it reaches your day plan or backlog.">
             AI turns this into prioritized draft tasks. You review everything before it reaches
             your day plan or backlog.
           </p>
         </div>
         <div class="inbox-controls">
-          <label for="brain-dump">Inbox</label>
+          <label for="brain-dump" data-i18n="Inbox">Inbox</label>
           <textarea
             id="brain-dump"
             data-testid="brain-dump"
             rows="7"
             maxlength="1800"
             placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
+            data-i18n-placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
           ></textarea>
           <div class="inbox-actions">
-            <button id="analyze-dump" class="primary" data-testid="analyze-dump">Analyze dump</button>
-            <button id="context-organize" class="ghost" data-testid="context-organize">Organize with current plan</button>
-            <button id="clear-dump" class="ghost" data-testid="clear-dump">Clear</button>
+            <button id="analyze-dump" class="primary" data-testid="analyze-dump" data-i18n="Analyze dump">Analyze dump</button>
+            <button id="context-organize" class="ghost" data-testid="context-organize" data-i18n="Organize with current plan">Organize with current plan</button>
+            <button id="clear-dump" class="ghost" data-testid="clear-dump" data-i18n="Clear">Clear</button>
           </div>
           <div class="inbox-feedback">
             <span id="ai-status" class="status-line" role="status" data-testid="ai-status"></span>
@@ -94,15 +97,15 @@
       <section class="panel" data-testid="backlog">
         <div class="section-heading">
           <div>
-            <h2>Backlog</h2>
-            <p class="helper">Ranked by impact and urgency. Pick items for today when ready.</p>
+            <h2 data-i18n="Backlog">Backlog</h2>
+            <p class="helper" data-i18n="Ranked by impact and urgency. Pick items for today when ready.">Ranked by impact and urgency. Pick items for today when ready.</p>
           </div>
-          <button id="sort-backlog" class="ghost" data-testid="sort-backlog">Sort</button>
+          <button id="sort-backlog" class="ghost" data-testid="sort-backlog" data-i18n="Sort">Sort</button>
         </div>
         <div id="backlog-list" class="task-list" data-testid="backlog-list"></div>
         <details id="done-backlog" class="done-backlog" data-testid="done-backlog">
           <summary data-testid="done-backlog-toggle">
-            <span>Done</span>
+            <span data-i18n="Done">Done</span>
             <span id="done-backlog-count" class="done-count">0</span>
           </summary>
           <div id="done-backlog-list" class="task-list" data-testid="done-backlog-list"></div>
@@ -112,12 +115,12 @@
       <section class="calendar" data-testid="calendar">
         <div class="calendar-header">
           <div>
-            <h2>Day view</h2>
-            <p class="helper">Drag blocks to resize in 5-minute steps.</p>
+            <h2 data-i18n="Day view">Day view</h2>
+            <p class="helper" data-i18n="Drag blocks to resize in 5-minute steps.">Drag blocks to resize in 5-minute steps.</p>
           </div>
           <div class="calendar-actions">
-            <button id="add-task" class="primary" data-testid="add-task">Add task</button>
-            <button id="add-meeting" class="ghost" data-testid="add-meeting">Add meeting</button>
+            <button id="add-task" class="primary" data-testid="add-task" data-i18n="Add task">Add task</button>
+            <button id="add-meeting" class="ghost" data-testid="add-meeting" data-i18n="Add meeting">Add meeting</button>
           </div>
         </div>
         <div class="calendar-grid">
@@ -156,59 +159,64 @@
       <div class="drawer-card">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Account</p>
-            <h2 id="account-heading">Sign in</h2>
+            <p class="eyebrow" data-i18n="Account">Account</p>
+            <h2 id="account-heading" data-i18n="Sign in">Sign in</h2>
           </div>
-          <button id="close-account" class="ghost" data-testid="close-account">Close</button>
+          <button id="close-account" class="ghost" data-testid="close-account" data-i18n="Close">Close</button>
         </div>
-        <p id="account-copy" class="helper">
+        <p id="account-copy" class="helper" data-i18n="Accounts are invite-only during the beta. You can keep using this browser locally without signing in.">
           Accounts are invite-only during the beta. You can keep using this browser locally without signing in.
         </p>
         <div id="invite-confirmation" class="hidden" data-testid="invite-confirmation">
           <div class="drawer-actions">
-            <button id="accept-invite" class="primary" data-testid="accept-invite" type="button">Accept invitation</button>
+            <button id="accept-invite" class="primary" data-testid="accept-invite" type="button" data-i18n="Accept invitation">Accept invitation</button>
           </div>
         </div>
         <form id="sign-in-form" data-testid="sign-in-form">
-          <label for="account-email">Email</label>
+          <label for="account-email" data-i18n="Email">Email</label>
           <input id="account-email" data-testid="account-email" type="email" autocomplete="email" required />
-          <label for="account-password">Password</label>
+          <label for="account-password" data-i18n="Password">Password</label>
           <input id="account-password" data-testid="account-password" type="password" autocomplete="current-password" required />
           <div class="drawer-actions">
-            <button id="sign-in" class="primary" data-testid="sign-in" type="submit">Sign in</button>
-            <button id="forgot-password" class="ghost" data-testid="forgot-password" type="button">Forgot password?</button>
+            <button id="sign-in" class="primary" data-testid="sign-in" type="submit" data-i18n="Sign in">Sign in</button>
+            <button id="forgot-password" class="ghost" data-testid="forgot-password" type="button" data-i18n="Forgot password?">Forgot password?</button>
           </div>
         </form>
         <form id="activation-form" class="hidden" data-testid="activation-form">
-          <label for="activation-password">Create password</label>
+          <label for="activation-password" data-i18n="Create password">Create password</label>
           <input id="activation-password" data-testid="activation-password" type="password" autocomplete="new-password" minlength="12" required />
-          <label for="activation-password-confirm">Confirm password</label>
+          <label for="activation-password-confirm" data-i18n="Confirm password">Confirm password</label>
           <input id="activation-password-confirm" data-testid="activation-password-confirm" type="password" autocomplete="new-password" minlength="12" required />
-          <p class="helper">Use at least 12 characters with upper and lowercase letters and a number.</p>
+          <p class="helper" data-i18n="Use at least 12 characters with upper and lowercase letters and a number.">Use at least 12 characters with upper and lowercase letters and a number.</p>
+          <label for="activation-language" data-i18n="Language">Language</label>
+          <select id="activation-language" data-testid="activation-language">
+            <option value="en">English</option>
+            <option value="pl">Polski</option>
+          </select>
           <div class="drawer-actions">
-            <button id="activate-account" class="primary" data-testid="activate-account" type="submit">Activate account</button>
+            <button id="activate-account" class="primary" data-testid="activate-account" type="submit" data-i18n="Activate account">Activate account</button>
           </div>
         </form>
         <form id="recovery-form" class="hidden" data-testid="recovery-form">
-          <label for="recovery-password">New password</label>
+          <label for="recovery-password" data-i18n="New password">New password</label>
           <input id="recovery-password" data-testid="recovery-password" type="password" autocomplete="new-password" minlength="12" required />
-          <label for="recovery-password-confirm">Confirm new password</label>
+          <label for="recovery-password-confirm" data-i18n="Confirm new password">Confirm new password</label>
           <input id="recovery-password-confirm" data-testid="recovery-password-confirm" type="password" autocomplete="new-password" minlength="12" required />
-          <p class="helper">Use at least 12 characters with upper and lowercase letters and a number.</p>
+          <p class="helper" data-i18n="Use at least 12 characters with upper and lowercase letters and a number.">Use at least 12 characters with upper and lowercase letters and a number.</p>
           <div class="drawer-actions">
-            <button id="reset-password" class="primary" data-testid="reset-password" type="submit">Set new password</button>
+            <button id="reset-password" class="primary" data-testid="reset-password" type="submit" data-i18n="Set new password">Set new password</button>
           </div>
         </form>
         <div id="auth-link-failure" class="hidden" data-testid="auth-link-failure">
-          <p class="helper">Use the instructions above to continue.</p>
+          <p class="helper" data-i18n="Use the instructions above to continue.">Use the instructions above to continue.</p>
           <div class="drawer-actions">
-            <button id="retry-auth-link" class="primary hidden" data-testid="retry-auth-link" type="button">Try again</button>
+            <button id="retry-auth-link" class="primary hidden" data-testid="retry-auth-link" type="button" data-i18n="Try again">Try again</button>
           </div>
         </div>
         <div id="signed-in-actions" class="hidden" data-testid="signed-in-actions">
           <p id="account-email-status" class="account-email"></p>
           <div class="drawer-actions">
-            <button id="sign-out" class="danger" data-testid="sign-out">Sign out on this device</button>
+            <button id="sign-out" class="danger" data-testid="sign-out" data-i18n="Sign out on this device">Sign out on this device</button>
           </div>
         </div>
         <p id="account-status" class="status-line" role="status" data-testid="account-status"></p>
@@ -219,14 +227,14 @@
       <div class="drawer-card">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">First sync</p>
-            <h2>Choose your planner data</h2>
+            <p class="eyebrow" data-i18n="First sync">First sync</p>
+            <h2 data-i18n="Choose your planner data">Choose your planner data</h2>
           </div>
         </div>
         <p id="initial-sync-copy" class="helper"></p>
         <div class="drawer-actions stacked-actions">
-          <button id="initial-sync-local" class="primary" data-testid="initial-sync-local">Use this device’s data</button>
-          <button id="initial-sync-cloud" class="ghost" data-testid="initial-sync-cloud">Use account data</button>
+          <button id="initial-sync-local" class="primary" data-testid="initial-sync-local" data-i18n="Use this device’s data">Use this device’s data</button>
+          <button id="initial-sync-cloud" class="ghost" data-testid="initial-sync-cloud" data-i18n="Use account data">Use account data</button>
         </div>
       </div>
     </aside>
@@ -235,16 +243,16 @@
       <div class="drawer-card">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Sync conflict</p>
-            <h2>Another device saved changes</h2>
+            <p class="eyebrow" data-i18n="Sync conflict">Sync conflict</p>
+            <h2 data-i18n="Another device saved changes">Another device saved changes</h2>
           </div>
         </div>
-        <p class="helper">
+        <p class="helper" data-i18n="Your unsynced work is still safe on this device. Choose which complete version should become current.">
           Your unsynced work is still safe on this device. Choose which complete version should become current.
         </p>
         <div class="drawer-actions stacked-actions">
-          <button id="conflict-use-cloud" class="primary" data-testid="conflict-use-cloud">Reload account data</button>
-          <button id="conflict-use-local" class="danger" data-testid="conflict-use-local">Overwrite with this device</button>
+          <button id="conflict-use-cloud" class="primary" data-testid="conflict-use-cloud" data-i18n="Reload account data">Reload account data</button>
+          <button id="conflict-use-local" class="danger" data-testid="conflict-use-local" data-i18n="Overwrite with this device">Overwrite with this device</button>
         </div>
       </div>
     </aside>
@@ -261,14 +269,14 @@
       <div id="review-card" class="drawer-card wide review-card" tabindex="-1">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">AI review</p>
-            <h2 id="review-heading" data-testid="review-heading">Review before applying</h2>
+            <p class="eyebrow" data-i18n="AI review">AI review</p>
+            <h2 id="review-heading" data-testid="review-heading" data-i18n="Review before applying">Review before applying</h2>
           </div>
-          <button id="close-review" class="ghost" data-testid="close-review">Close</button>
+          <button id="close-review" class="ghost" data-testid="close-review" data-i18n="Close">Close</button>
         </div>
         <section id="review-context" class="review-context" aria-labelledby="review-context-title" data-testid="review-context">
           <div>
-            <p class="eyebrow">Draft context</p>
+            <p class="eyebrow" data-i18n="Draft context">Draft context</p>
             <h3 id="review-context-title" data-testid="review-context-title"></h3>
           </div>
           <div id="review-stats" class="review-stat-list" data-testid="review-stats"></div>
@@ -277,17 +285,17 @@
             <ul id="review-current-list"></ul>
           </details>
           <label id="review-breakdown-mode-field" class="review-apply-mode" for="review-breakdown-apply-mode">
-            Apply these steps as
+            <span data-i18n="Apply these steps as">Apply these steps as</span>
             <select id="review-breakdown-apply-mode" data-testid="review-breakdown-apply-mode">
-              <option value="append">Add to existing steps</option>
-              <option value="replace">Replace existing steps</option>
+              <option value="append" data-i18n="Add to existing steps">Add to existing steps</option>
+              <option value="replace" data-i18n="Replace existing steps">Replace existing steps</option>
             </select>
           </label>
         </section>
         <section id="review-guidance" class="review-guidance" aria-labelledby="review-guidance-heading" data-testid="review-guidance" hidden>
           <div>
-            <p class="eyebrow">Refinement</p>
-            <h3 id="review-guidance-heading">Your guidance</h3>
+            <p class="eyebrow" data-i18n="Refinement">Refinement</p>
+            <h3 id="review-guidance-heading" data-i18n="Your guidance">Your guidance</h3>
           </div>
           <dl id="review-guidance-list"></dl>
           <div id="review-changes" class="review-changes" data-testid="review-changes"></div>
@@ -297,9 +305,9 @@
         <div id="review-questions" class="review-section" data-testid="review-questions"></div>
         <div id="review-tasks" class="review-section" data-testid="review-tasks"></div>
         <div class="drawer-actions review-footer" data-testid="review-footer">
-          <button id="apply-review" class="primary" data-testid="apply-review">Apply accepted tasks</button>
-          <button id="reanalyze-dump" class="ghost" data-testid="reanalyze-dump">Update draft</button>
-          <button id="discard-review" class="ghost" data-testid="discard-review">Discard draft</button>
+          <button id="apply-review" class="primary" data-testid="apply-review" data-i18n="Apply accepted tasks">Apply accepted tasks</button>
+          <button id="reanalyze-dump" class="ghost" data-testid="reanalyze-dump" data-i18n="Update draft">Update draft</button>
+          <button id="discard-review" class="ghost" data-testid="discard-review" data-i18n="Discard draft">Discard draft</button>
         </div>
       </div>
     </aside>
@@ -308,58 +316,70 @@
       <div class="drawer-card">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Planner preferences</p>
-            <h2>Settings</h2>
+            <p class="eyebrow" data-i18n="Planner preferences">Planner preferences</p>
+            <h2 data-i18n="Settings">Settings</h2>
           </div>
-          <button id="close-settings" class="ghost" data-testid="close-settings">Close</button>
+          <button id="close-settings" class="ghost" data-testid="close-settings" data-i18n="Close">Close</button>
         </div>
+
+        <section class="settings-section" aria-labelledby="language-heading">
+          <div>
+            <p class="eyebrow" data-i18n="Language">Language</p>
+            <h3 id="language-heading" data-i18n="Interface language">Interface language</h3>
+          </div>
+          <select id="settings-language" data-testid="settings-language" aria-labelledby="language-heading">
+            <option value="en">English</option>
+            <option value="pl">Polski</option>
+          </select>
+          <p class="helper" data-i18n="Changes apply immediately. Account preferences are saved across devices; guest choices last until reload.">Changes apply immediately. Account preferences are saved across devices; guest choices last until reload.</p>
+        </section>
 
         <section class="settings-section" aria-labelledby="ai-provider-heading">
           <div>
-            <p class="eyebrow">AI provider</p>
-            <h3 id="ai-provider-heading">AI connection</h3>
+            <p class="eyebrow" data-i18n="AI provider">AI provider</p>
+            <h3 id="ai-provider-heading" data-i18n="AI connection">AI connection</h3>
           </div>
 
-          <label for="provider-mode">Mode</label>
+          <label for="provider-mode" data-i18n="Mode">Mode</label>
           <select id="provider-mode" data-testid="provider-mode">
-            <option value="vercel">Vercel API</option>
-            <option value="local">Local OpenAI-compatible</option>
+            <option value="vercel" data-i18n="Vercel API">Vercel API</option>
+            <option value="local" data-i18n="Local OpenAI-compatible">Local OpenAI-compatible</option>
           </select>
 
-          <label for="local-base-url">Local base URL</label>
+          <label for="local-base-url" data-i18n="Local base URL">Local base URL</label>
           <input id="local-base-url" data-testid="local-base-url" type="url" placeholder="http://localhost:11434/v1" />
 
-          <label for="local-model">Model</label>
-          <input id="local-model" data-testid="local-model" type="text" placeholder="gpt-oss:20b or local model name" />
+          <label for="local-model" data-i18n="Model">Model</label>
+          <input id="local-model" data-testid="local-model" type="text" placeholder="gpt-oss:20b or local model name" data-i18n-placeholder="gpt-oss:20b or local model name" />
 
-          <label for="local-api-key">Local API key</label>
-          <input id="local-api-key" data-testid="local-api-key" type="password" placeholder="Optional for most local servers" />
+          <label for="local-api-key" data-i18n="Local API key">Local API key</label>
+          <input id="local-api-key" data-testid="local-api-key" type="password" placeholder="Optional for most local servers" data-i18n-placeholder="Optional for most local servers" />
 
           <p class="helper">
-            Local mode calls <code>{baseUrl}/chat/completions</code> from the browser, so the
-            local server must allow browser CORS.
+            <span data-i18n="Local mode calls">Local mode calls</span> <code>{baseUrl}/chat/completions</code>
+            <span data-i18n="from the browser, so the local server must allow browser CORS.">from the browser, so the local server must allow browser CORS.</span>
           </p>
           <div class="drawer-actions">
-            <button id="save-settings" class="primary" data-testid="save-settings">Save settings</button>
-            <button id="clear-local-storage" class="danger" data-testid="clear-local-storage">Clear local settings</button>
+            <button id="save-settings" class="primary" data-testid="save-settings" data-i18n="Save settings">Save settings</button>
+            <button id="clear-local-storage" class="danger" data-testid="clear-local-storage" data-i18n="Clear local settings">Clear local settings</button>
           </div>
         </section>
 
         <section class="settings-section" aria-labelledby="data-exports-heading" data-testid="data-actions">
           <div>
-            <p class="eyebrow">Data &amp; exports</p>
-            <h3 id="data-exports-heading">Planner files</h3>
+            <p class="eyebrow" data-i18n="Data & exports">Data &amp; exports</p>
+            <h3 id="data-exports-heading" data-i18n="Planner files">Planner files</h3>
           </div>
-          <p class="helper">Download a day record or move backlog data between browsers.</p>
+          <p class="helper" data-i18n="Download a day record or move backlog data between browsers.">Download a day record or move backlog data between browsers.</p>
           <div class="drawer-actions stacked-actions">
-            <button id="save-day" class="primary">Export day snapshot</button>
-            <button id="day-report" class="ghost" data-testid="day-report">Export day report</button>
-            <button id="export-backlog" class="ghost">Export backlog</button>
-            <button id="import-backlog" class="ghost">Import backlog</button>
+            <button id="save-day" class="primary" data-i18n="Export day snapshot">Export day snapshot</button>
+            <button id="day-report" class="ghost" data-testid="day-report" data-i18n="Export day report">Export day report</button>
+            <button id="export-backlog" class="ghost" data-i18n="Export backlog">Export backlog</button>
+            <button id="import-backlog" class="ghost" data-i18n="Import backlog">Import backlog</button>
           </div>
           <div class="danger-zone">
-            <p class="helper">Clear only open backlog items. Done history and day tasks are preserved.</p>
-            <button id="clear-backlog" class="danger" data-testid="clear-backlog">Clear backlog</button>
+            <p class="helper" data-i18n="Clear only open backlog items. Done history and day tasks are preserved.">Clear only open backlog items. Done history and day tasks are preserved.</p>
+            <button id="clear-backlog" class="danger" data-testid="clear-backlog" data-i18n="Clear backlog">Clear backlog</button>
           </div>
           <input type="file" id="backlog-file" accept="application/json" hidden />
         </section>
@@ -370,19 +390,19 @@
       <div class="drawer-card">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Danger zone</p>
-            <h2>Clear backlog</h2>
+            <p class="eyebrow" data-i18n="Danger zone">Danger zone</p>
+            <h2 data-i18n="Clear backlog">Clear backlog</h2>
           </div>
-          <button id="cancel-clear-backlog" class="ghost" data-testid="cancel-clear-backlog">Cancel</button>
+          <button id="cancel-clear-backlog" class="ghost" data-testid="cancel-clear-backlog" data-i18n="Cancel">Cancel</button>
         </div>
-        <p class="helper">This permanently removes every open item currently in the backlog. Done items and day tasks are not changed.</p>
+        <p class="helper" data-i18n="This permanently removes every open item currently in the backlog. Done items and day tasks are not changed.">This permanently removes every open item currently in the backlog. Done items and day tasks are not changed.</p>
         <label class="confirm-row" for="confirm-clear-backlog">
           <input id="confirm-clear-backlog" data-testid="confirm-clear-backlog" type="checkbox" />
-          <span>I accept this will be lost forever</span>
+          <span data-i18n="I accept this will be lost forever">I accept this will be lost forever</span>
         </label>
         <div class="drawer-actions">
-          <button id="confirm-clear-backlog-action" class="danger" data-testid="confirm-clear-backlog-action" disabled>Clear open backlog</button>
-          <button id="cancel-clear-backlog-secondary" class="ghost" data-testid="cancel-clear-backlog-secondary">Keep backlog</button>
+          <button id="confirm-clear-backlog-action" class="danger" data-testid="confirm-clear-backlog-action" data-i18n="Clear open backlog" disabled>Clear open backlog</button>
+          <button id="cancel-clear-backlog-secondary" class="ghost" data-testid="cancel-clear-backlog-secondary" data-i18n="Keep backlog">Keep backlog</button>
         </div>
       </div>
     </aside>
@@ -400,29 +420,30 @@
         <form id="task-editor-form" class="task-editor-form" data-testid="task-editor-form">
           <div class="drawer-header task-editor-header">
             <div>
-              <p id="detail-eyebrow" class="eyebrow">Task editor</p>
-              <h2 id="detail-heading">Create task</h2>
+              <p id="detail-eyebrow" class="eyebrow" data-i18n="Task editor">Task editor</p>
+              <h2 id="detail-heading" data-i18n="Create task">Create task</h2>
             </div>
-            <button id="close-task-details" class="ghost" type="button" data-testid="close-task-details">Close</button>
+            <button id="close-task-details" class="ghost" type="button" data-testid="close-task-details" data-i18n="Close">Close</button>
           </div>
 
           <div class="task-editor-core">
-            <label for="detail-task-title">Title
+            <label for="detail-task-title"><span data-i18n="Title">Title</span>
               <input
                 id="detail-task-title"
                 data-testid="detail-task-title"
                 type="text"
                 maxlength="180"
                 placeholder="What needs doing?"
+                data-i18n-placeholder="What needs doing?"
                 required
               />
             </label>
 
             <div class="detail-grid task-schedule-grid">
-              <label id="detail-task-start-field" for="detail-task-start">Start time
+              <label id="detail-task-start-field" for="detail-task-start"><span data-i18n="Start time">Start time</span>
                 <input id="detail-task-start" data-testid="detail-task-start" type="time" min="04:00" max="23:50" step="300" />
               </label>
-              <label for="detail-task-duration">Minutes
+              <label for="detail-task-duration"><span data-i18n="Minutes">Minutes</span>
                 <input id="detail-task-duration" data-testid="detail-task-duration" type="number" min="10" max="480" step="5" required />
               </label>
             </div>
@@ -431,41 +452,41 @@
           <section class="detail-section task-subtask-section" aria-labelledby="detail-subtasks-heading">
             <div class="section-heading compact">
               <div>
-                <h3 id="detail-subtasks-heading">Subtasks</h3>
-                <p class="helper">Break the work into small, checkable steps.</p>
+                <h3 id="detail-subtasks-heading" data-i18n="Subtasks">Subtasks</h3>
+                <p class="helper" data-i18n="Break the work into small, checkable steps.">Break the work into small, checkable steps.</p>
               </div>
-              <button id="detail-add-subtask" class="ghost compact-button" type="button" data-testid="detail-add-subtask">Add subtask</button>
+              <button id="detail-add-subtask" class="ghost compact-button" type="button" data-testid="detail-add-subtask" data-i18n="Add subtask">Add subtask</button>
             </div>
             <div id="detail-subtasks" class="detail-subtasks" data-testid="detail-subtasks"></div>
           </section>
 
           <details id="detail-advanced" class="detail-disclosure" data-testid="detail-advanced">
             <summary>
-              <span>Priority &amp; progress</span>
+              <span data-i18n="Priority & progress">Priority &amp; progress</span>
               <span id="detail-advanced-summary" class="disclosure-summary-value"></span>
             </summary>
             <div class="detail-disclosure-body">
               <div class="detail-grid">
-                <label for="detail-task-progress">Done minutes
+                <label for="detail-task-progress"><span data-i18n="Done minutes">Done minutes</span>
                   <input id="detail-task-progress" data-testid="detail-task-progress" type="number" min="0" max="480" step="5" />
                 </label>
-                <label for="detail-priority-score">Priority
+                <label for="detail-priority-score"><span data-i18n="Priority">Priority</span>
                   <select id="detail-priority-score" data-testid="detail-priority-score">
-                    <option value="LOW">LOW</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="HIGH">HIGH</option>
-                    <option value="CRITICAL">CRITICAL</option>
+                    <option value="LOW" data-i18n="LOW">LOW</option>
+                    <option value="MEDIUM" data-i18n="MEDIUM">MEDIUM</option>
+                    <option value="HIGH" data-i18n="HIGH">HIGH</option>
+                    <option value="CRITICAL" data-i18n="CRITICAL">CRITICAL</option>
                   </select>
                 </label>
-                <label for="detail-impact">Impact
+                <label for="detail-impact"><span data-i18n="Impact">Impact</span>
                   <input id="detail-impact" data-testid="detail-impact" type="number" min="1" max="5" />
                 </label>
-                <label for="detail-urgency">Urgency
+                <label for="detail-urgency"><span data-i18n="Urgency">Urgency</span>
                   <input id="detail-urgency" data-testid="detail-urgency" type="number" min="1" max="5" />
                 </label>
               </div>
 
-              <label for="detail-priority-reason">Priority reason
+              <label for="detail-priority-reason"><span data-i18n="Priority reason">Priority reason</span>
                 <textarea id="detail-priority-reason" data-testid="detail-priority-reason" rows="3"></textarea>
               </label>
             </div>
@@ -473,47 +494,48 @@
 
           <details id="detail-ai-section" class="detail-disclosure" data-testid="detail-ai-section">
             <summary>
-              <span>Help me get started</span>
-              <span class="disclosure-summary-value">AI suggestions</span>
+              <span data-i18n="Help me get started">Help me get started</span>
+              <span class="disclosure-summary-value" data-i18n="AI suggestions">AI suggestions</span>
             </summary>
             <div class="detail-disclosure-body">
-              <p class="helper">Turn a task that feels too large or difficult to begin into practical steps.</p>
-              <label for="detail-breakdown-instructions">Optional focus
+              <p class="helper" data-i18n="Turn a task that feels too large or difficult to begin into practical steps.">Turn a task that feels too large or difficult to begin into practical steps.</p>
+              <label for="detail-breakdown-instructions"><span data-i18n="Optional focus">Optional focus</span>
                 <textarea
                   id="detail-breakdown-instructions"
                   data-testid="detail-breakdown-instructions"
                   rows="3"
                   placeholder="Optional: describe the outcome, constraint, or starting point that matters most..."
+                  data-i18n-placeholder="Optional: describe the outcome, constraint, or starting point that matters most..."
                 ></textarea>
               </label>
               <div class="detail-grid breakdown-setup-grid">
-                <label for="detail-breakdown-granularity">Step size
+                <label for="detail-breakdown-granularity"><span data-i18n="Step size">Step size</span>
                   <select id="detail-breakdown-granularity" data-testid="detail-breakdown-granularity">
-                    <option value="small">Few larger steps</option>
-                    <option value="medium" selected>Balanced</option>
-                    <option value="large">More smaller steps</option>
+                    <option value="small" data-i18n="Few larger steps">Few larger steps</option>
+                    <option value="medium" data-i18n="Balanced" selected>Balanced</option>
+                    <option value="large" data-i18n="More smaller steps">More smaller steps</option>
                   </select>
                 </label>
               </div>
-              <button id="detail-breakdown-ai" class="ghost" type="button" data-testid="detail-breakdown-ai">Suggest steps with AI</button>
+              <button id="detail-breakdown-ai" class="ghost" type="button" data-testid="detail-breakdown-ai" data-i18n="Suggest steps with AI">Suggest steps with AI</button>
             </div>
           </details>
 
           <section id="detail-task-actions" class="detail-section task-action-section" data-testid="detail-task-actions">
-            <h3>Task actions</h3>
+            <h3 data-i18n="Task actions">Task actions</h3>
             <div class="drawer-actions detail-actions">
-              <button id="detail-toggle-timer" class="primary" type="button" data-testid="detail-toggle-timer">Start</button>
-              <button id="detail-toggle-done" class="ghost" type="button" data-testid="detail-toggle-done">Done</button>
-              <button id="detail-split" class="ghost" type="button" data-testid="detail-split">Split</button>
-              <button id="detail-backlog" class="ghost" type="button" data-testid="detail-backlog">Move to backlog</button>
-              <button id="detail-export-agent" class="ghost" type="button" data-testid="detail-export-agent">Export agent prompt</button>
-              <button id="detail-delete" class="danger" type="button" data-testid="detail-delete">Delete</button>
+              <button id="detail-toggle-timer" class="primary" type="button" data-testid="detail-toggle-timer" data-i18n="Start">Start</button>
+              <button id="detail-toggle-done" class="ghost" type="button" data-testid="detail-toggle-done" data-i18n="Done">Done</button>
+              <button id="detail-split" class="ghost" type="button" data-testid="detail-split" data-i18n="Split">Split</button>
+              <button id="detail-backlog" class="ghost" type="button" data-testid="detail-backlog" data-i18n="Move to backlog">Move to backlog</button>
+              <button id="detail-export-agent" class="ghost" type="button" data-testid="detail-export-agent" data-i18n="Export agent prompt">Export agent prompt</button>
+              <button id="detail-delete" class="danger" type="button" data-testid="detail-delete" data-i18n="Delete">Delete</button>
             </div>
           </section>
 
           <div class="task-editor-footer">
-            <button id="cancel-task-editor" class="ghost" type="button" data-testid="cancel-task-editor">Cancel</button>
-            <button id="save-task-editor" class="primary" type="submit" data-testid="save-task-editor">Create task</button>
+            <button id="cancel-task-editor" class="ghost" type="button" data-testid="cancel-task-editor" data-i18n="Cancel">Cancel</button>
+            <button id="save-task-editor" class="primary" type="submit" data-testid="save-task-editor" data-i18n="Create task">Create task</button>
           </div>
         </form>
       </div>
@@ -523,15 +545,15 @@
       <div class="drawer-card wide">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Agent export</p>
-            <h2>Prompt handoff</h2>
+            <p class="eyebrow" data-i18n="Agent export">Agent export</p>
+            <h2 data-i18n="Prompt handoff">Prompt handoff</h2>
           </div>
-          <button id="close-agent-export" class="ghost" data-testid="close-agent-export">Close</button>
+          <button id="close-agent-export" class="ghost" data-testid="close-agent-export" data-i18n="Close">Close</button>
         </div>
         <p id="agent-export-status" class="helper" data-testid="agent-export-status"></p>
         <textarea id="agent-export-prompt" class="agent-export-prompt" data-testid="agent-export-prompt" rows="18" readonly></textarea>
         <div class="drawer-actions">
-          <button id="copy-agent-export" class="primary" data-testid="copy-agent-export">Copy prompt</button>
+          <button id="copy-agent-export" class="primary" data-testid="copy-agent-export" data-i18n="Copy prompt">Copy prompt</button>
         </div>
       </div>
     </aside>
@@ -545,21 +567,22 @@
           <ul class="task-subtasks"></ul>
         </div>
         <div class="task-actions">
-          <button data-action="edit" class="ghost">Edit</button>
-          <button data-action="pick" class="primary">Pick up</button>
+          <button data-action="edit" class="ghost" data-i18n="Edit">Edit</button>
+          <button data-action="pick" class="primary" data-i18n="Pick up">Pick up</button>
         </div>
       </div>
     </template>
 
     <div id="thinking-overlay" class="thinking-overlay" aria-hidden="true">
-      <p class="thinking-text">Thinking<span class="dot d1">.</span><span class="dot d2">.</span><span class="dot d3">.</span></p>
-      <p class="thinking-notice">DO NOT CLOSE THIS TAB</p>
+      <p class="thinking-text"><span data-i18n="Thinking">Thinking</span><span class="dot d1">.</span><span class="dot d2">.</span><span class="dot d3">.</span></p>
+      <p class="thinking-notice" data-i18n="DO NOT CLOSE THIS TAB">DO NOT CLOSE THIS TAB</p>
     </div>
 
     <script
       src="vendor/supabase-2.110.8.js"
       integrity="sha384-M65KxMm/JqBppck6onbmAgPVMBHrmPCf1L17Q+71EcvI9/VVI8j5cqoxQf6lj6h2"
     ></script>
+    <script src="i18n.js"></script>
     <script src="aiContract.js"></script>
     <script src="authLink.js"></script>
     <script src="cloud.js"></script>

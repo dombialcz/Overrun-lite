@@ -6,6 +6,7 @@ const {
   normalizeBreakdownResponse,
   normalizeClarifications,
   normalizeContextOrganizeResponse,
+  normalizeLocale,
   normalizePlannerResponse,
   normalizeSchedulingContext,
   plannerResponseSchema,
@@ -121,6 +122,7 @@ function normalizeRequestBody(body) {
       throw badRequest("Request body must be valid JSON.");
     }
   }
+  const locale = normalizeLocale(payload.locale);
   if (payload.mode === "task_breakdown") {
     const task = payload.task && typeof payload.task === "object" ? payload.task : null;
     if (!task || !String(task.title || task.name || "").trim()) {
@@ -128,6 +130,7 @@ function normalizeRequestBody(body) {
     }
     return {
       mode: "task_breakdown",
+      locale,
       task,
       instructions: String(payload.instructions || ""),
       granularity: ["small", "medium", "large"].includes(payload.granularity)
@@ -150,8 +153,9 @@ function normalizeRequestBody(body) {
   });
   return {
     mode: payload.mode,
+    locale,
     input: String(payload.input),
-    clarifications: normalizeClarifications(payload.clarifications),
+    clarifications: normalizeClarifications(payload.clarifications, locale),
     answers: payload.answers && typeof payload.answers === "object" ? payload.answers : {},
     currentTasks,
     currentBacklog,
@@ -170,7 +174,7 @@ async function requestPlanner(payload, config) {
     });
     providerCompleted = true;
     const parsed = parseProviderJson(response);
-    if (payload.mode === "task_breakdown") return normalizeBreakdownResponse(parsed);
+    if (payload.mode === "task_breakdown") return normalizeBreakdownResponse(parsed, payload);
     if (payload.mode === "context_organize") return normalizeContextOrganizeResponse(parsed, payload);
     return normalizePlannerResponse(parsed, payload);
   } catch (err) {
@@ -299,4 +303,5 @@ function badRequest(message) {
 }
 
 module.exports.buildChatCompletionBody = buildChatCompletionBody;
+module.exports.normalizeRequestBody = normalizeRequestBody;
 module.exports.parseProviderJson = parseProviderJson;
