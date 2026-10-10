@@ -158,6 +158,9 @@ The planner supports two AI targets:
 AI output is always reviewed before it is applied. When the day plan is empty,
 brain dumps propose start times for up to eight hours of tasks and keep overflow
 in the backlog; when the day already has tasks, new proposals stay in the backlog.
+Exact times in a brain dump, such as `20:00` or `8 pm`, take precedence over the
+default start time when they fit. Flexible phrases such as `in the evening` guide
+the draft toward a suitable time in that part of the day.
 The themed review drawer summarizes accepted work, keeps its Apply action visible,
 and lets the user change each destination and start time before applying. Drafts
 may show up to two optional clarifications when an answer would materially improve

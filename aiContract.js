@@ -35,7 +35,10 @@
             urgency: { type: "integer", minimum: 1, maximum: 5 },
             impact: { type: "integer", minimum: 1, maximum: 5 },
             destination: { type: "string", enum: ["day", "backlog"] },
-            startTime: { type: "string" },
+            startTime: {
+              type: "string",
+              description: "A 24-hour HH:MM start time for day tasks, honoring any time the user stated; otherwise an empty string.",
+            },
             subtasks: {
               type: "array",
               items: {
@@ -169,6 +172,10 @@
     "When clarifications are provided, treat their answers as authoritative, return a complete refined proposal, and do not repeat answered questions.",
     "When currentDraft is provided, preserve fields listed in userEditedFields unless the user explicitly asks to change them.",
     "Always set destination and startTime for every proposed task.",
+    "Treat time references in the user's input as scheduling preferences that belong to the task they describe.",
+    "An exact clock time such as 20:00, 8 pm, or 8:30 AM is a strong preference: distinguish am from pm, convert it to 24-hour HH:MM, and use it as that task's startTime when the day can be planned and the task fits the allowed range. The user's exact time takes precedence over preferredStartTime and convenient task ordering.",
+    "For a flexible daypart such as morning, afternoon, evening, or night (including equivalents in the response language), choose a sensible time within that period and the allowed day range. As a default, interpret morning as 08:00-12:00, afternoon as 12:00-17:00, evening as 17:00-21:00, and night as 21:00 through dayEndTime.",
+    "If an explicit time cannot be honored because the day cannot be planned, it conflicts, falls outside the allowed range, or exceeds the planning budget, do not silently replace it with an unrelated default time; put the task in the backlog when required and briefly explain the constraint in warnings.",
     "When scheduling.canPlanDay is true, suggest a realistic non-overlapping day plan within its time range and maximum planned minutes; set fitting tasks to destination day with an HH:MM startTime, and put overflow or less important work in the backlog with an empty startTime.",
     "When scheduling.canPlanDay is false, set every new task to destination backlog with an empty startTime.",
   ];
@@ -483,7 +490,17 @@
   }
 
   function normalizeClockValue(value, fallback, allow24) {
-    const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+    const normalized = String(value || "").trim();
+    const twelveHourMatch = normalized.match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\.?$/i);
+    if (twelveHourMatch) {
+      const twelveHour = Number(twelveHourMatch[1]);
+      const minutes = Number(twelveHourMatch[2] || 0);
+      if (twelveHour < 1 || twelveHour > 12 || minutes < 0 || minutes > 59) return fallback;
+      const hours = (twelveHour % 12) + (twelveHourMatch[3].toLowerCase() === "p" ? 12 : 0);
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    }
+
+    const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
     if (!match) return fallback;
     const hours = Number(match[1]);
     const minutes = Number(match[2]);
