@@ -65,6 +65,52 @@ test("brain dump hides empty clarifications and keeps the first draft applicable
   await expect(ui.backlog.items()).toHaveCount(0);
 });
 
+test("brain dump preserves a user-stated pm time in the reviewable schedule", async ({ ui }) => {
+  await ui.page.route("**/chat/completions", async (route) => {
+    const requestBody = route.request().postDataJSON();
+    expect(requestBody.messages[0].content).toContain("exact time takes precedence over preferredStartTime");
+    expect(JSON.parse(requestBody.messages[1].content).input).toBe("I need to take pills at 8 pm.");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              summary: "Scheduled the reminder at the requested time.",
+              proposedTasks: [{
+                title: "Take pills",
+                minutes: 10,
+                priorityScore: 80,
+                priorityReason: "The user specified an exact time.",
+                urgency: 5,
+                impact: 5,
+                destination: "day",
+                startTime: "8 pm",
+                subtasks: [],
+              }],
+              questions: [],
+              priorityUpdates: [],
+              warnings: [],
+            }),
+          },
+        }],
+      }),
+    });
+  });
+
+  await ui.inbox.fillDump("I need to take pills at 8 pm.");
+  await ui.page.getByTestId("analyze-dump").click();
+
+  await expect(ui.page.getByTestId("proposal-start-time")).toHaveValue("20:00");
+  await ui.aiReview.apply();
+  await expect(ui.calendar.blocks()).toHaveCount(1);
+  await expect(ui.calendar.block(0)).toContainText("Take pills");
+  await expect(ui.calendar.block(0)).toContainText("20:00");
+  expect(ui.consoleErrors).toEqual([]);
+});
+
 test("empty-day AI suggestions schedule fitting work and keep overflow in backlog", async ({ ui }) => {
   await ui.page.route("**/chat/completions", async (route) => {
     await route.fulfill({

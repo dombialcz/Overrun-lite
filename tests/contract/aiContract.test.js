@@ -123,6 +123,21 @@ test("planner prompt requests reviewable scheduling only for an empty day", () =
   });
 });
 
+test("planner prompt prioritizes exact times and interprets flexible dayparts", () => {
+  const messages = ai.buildPlannerMessages({
+    mode: "brain_dump",
+    input: "Take pills at 8 pm and prepare tomorrow's clothes in the evening.",
+    currentTasks: [],
+    scheduling: { canPlanDay: true },
+  });
+
+  assert.match(messages[0].content, /exact clock time.*strong preference/i);
+  assert.match(messages[0].content, /distinguish am from pm/i);
+  assert.match(messages[0].content, /exact time takes precedence over preferredStartTime/i);
+  assert.match(messages[0].content, /evening as 17:00-21:00/i);
+  assert.match(messages[0].content, /do not silently replace it with an unrelated default time/i);
+});
+
 test("planner normalization accepts existing task aliases", () => {
   const normalized = ai.normalizePlannerResponse({
     tasks: [
@@ -170,6 +185,25 @@ test("planner normalization defaults weak empty-day proposals to the day and pro
   });
   assert.equal(occupiedDay.proposedTasks[0].destination, "backlog");
   assert.equal(occupiedDay.proposedTasks[0].startTime, "");
+});
+
+test("planner normalization accepts 12-hour start times from weak models", () => {
+  const makeResponse = (startTime) => ({
+    proposedTasks: [{
+      title: "Take pills",
+      minutes: 10,
+      destination: "day",
+      startTime,
+    }],
+  });
+  const context = {
+    currentTasks: [],
+    scheduling: { canPlanDay: true },
+  };
+
+  assert.equal(ai.normalizePlannerResponse(makeResponse("8 pm"), context).proposedTasks[0].startTime, "20:00");
+  assert.equal(ai.normalizePlannerResponse(makeResponse("8:15 P.M."), context).proposedTasks[0].startTime, "20:15");
+  assert.equal(ai.normalizePlannerResponse(makeResponse("12 am"), context).proposedTasks[0].startTime, "00:00");
 });
 
 test("planner normalization limits follow-up questions to two", () => {

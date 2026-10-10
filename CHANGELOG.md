@@ -35,6 +35,7 @@ All notable changes to Overrun Lite are documented here.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
 ### Changed
+- **Time-aware AI scheduling** — brain-dump drafts now prioritize user-stated clock times, interpret dayparts such as evening as flexible scheduling preferences, and normalize 12-hour times returned by weaker local models.
 - **Traceable themed AI review** — AI drafts now use compact theme-aware cards, contextual counts, sticky actions, accessible dialog focus, retained clarification history, visible refinement summaries, and preserved manual edits; task breakdown questions can be answered and refined before choosing whether to add or replace steps.
 - **Task-driven day header** — Replaced the arbitrary eight-hour countdown with a compact current/next-task summary and a direct Start/Stop focus action.
 - **Context-aware inbox emphasis** — Analyze dump remains the primary action for an empty day, while Organize with current plan becomes primary whenever the day view contains tasks.
