@@ -12,7 +12,8 @@ test("guest language changes immediately, localizes generated output, and resets
 
   await ui.page.getByTestId("close-settings").click();
   await ui.calendar.addTask("Napisać raport");
-  await expect(ui.calendar.block(0)).toContainText("ŚREDNI");
+  await expect(ui.calendar.block(0)).toContainText("08:00");
+  await expect(ui.calendar.block(0)).not.toContainText(/priorytet|wpływ|pilność/i);
 
   await ui.calendar.openTask(0);
   await ui.taskDetails.exportAgentPrompt();
@@ -52,7 +53,6 @@ test("Polish locale is included in local AI requests", async ({ ui }) => {
               summary: "Gotowe do sprawdzenia.",
               proposedTasks: [],
               questions: [],
-              priorityUpdates: [],
               warnings: [],
             }),
           },

@@ -652,7 +652,6 @@ function task(id: string, name: string): Record<string, unknown> {
     type: "task",
     startMinutes: 0,
     hasExplicitStart: true,
-    elapsedMinutes: 0,
     completed: false,
     priorityScore: 50,
     priorityReason: "",

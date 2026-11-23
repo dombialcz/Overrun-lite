@@ -21,6 +21,56 @@ test("AI prompts keep schemas stable while requesting the selected response lang
   assert.equal(JSON.parse(fallback[1].content).locale, "en");
 });
 
+test("AI requests omit task progress metadata from every planning mode", () => {
+  const task = {
+    id: "task-1",
+    title: "Prepare launch",
+    minutes: 60,
+    completed: false,
+    completedAt: null,
+    progress: 40,
+    elapsedMinutes: 25,
+    elapsedSeconds: 1500,
+    doneMinutes: 25,
+    subtasks: [{ title: "Draft copy", minutes: 20, completed: true, progress: 100 }],
+  };
+  const currentDraft = {
+    progress: 50,
+    elapsedMinutes: 30,
+    proposedTasks: [{ title: "Edited task", minutes: 45, completed: true }],
+  };
+
+  const plannerRequest = JSON.parse(ai.buildPlannerMessages({
+    mode: "brain_dump",
+    input: "Prepare launch",
+    currentTasks: [task],
+    currentBacklog: [task],
+    currentDraft,
+  })[1].content);
+  const contextRequest = JSON.parse(ai.buildPlannerMessages({
+    mode: "context_organize",
+    input: "Prepare launch",
+    currentTasks: [task],
+    currentBacklog: [task],
+    currentDraft,
+  })[1].content);
+  const breakdownRequest = JSON.parse(ai.buildPlannerMessages({
+    mode: "task_breakdown",
+    task,
+    currentDraft,
+  })[1].content);
+
+  [plannerRequest, contextRequest, breakdownRequest].forEach((request) => {
+    assert.doesNotMatch(JSON.stringify(request), /progress|elapsedMinutes|elapsedSeconds|doneMinutes|completedAt/i);
+  });
+  assert.equal("completed" in plannerRequest.currentTasks[0], false);
+  assert.equal("completed" in plannerRequest.currentTasks[0].subtasks[0], false);
+  assert.equal("completed" in contextRequest.currentBacklog[0], false);
+  assert.equal("completed" in breakdownRequest.task, false);
+  assert.equal("completed" in breakdownRequest.task.subtasks[0], false);
+  assert.equal("completed" in breakdownRequest.currentDraft.proposedTasks[0], false);
+});
+
 test("planner prompt keeps capture concise and sends complete clarification context", () => {
   const messages = ai.buildPlannerMessages({
     mode: "brain_dump",
@@ -29,7 +79,7 @@ test("planner prompt keeps capture concise and sends complete clarification cont
       {
         id: "deadline",
         question: "When does this need to be ready?",
-        reason: "The deadline affects urgency.",
+        reason: "The deadline affects scheduling.",
         answer: "Next Friday",
       },
       {
@@ -57,7 +107,7 @@ test("planner prompt keeps capture concise and sends complete clarification cont
     {
       id: "deadline",
       question: "When does this need to be ready?",
-      reason: "The deadline affects urgency.",
+      reason: "The deadline affects scheduling.",
       answer: "Next Friday",
     },
     {
@@ -112,7 +162,7 @@ test("planner prompt requests reviewable scheduling only for an empty day", () =
   });
 
   assert.match(messages[0].content, /non-overlapping day plan/i);
-  assert.match(messages[0].content, /overflow or less important work in the backlog/i);
+  assert.match(messages[0].content, /overflow work in the backlog/i);
   const request = JSON.parse(messages[1].content);
   assert.deepEqual(request.scheduling, {
     canPlanDay: true,
@@ -146,6 +196,8 @@ test("planner normalization accepts existing task aliases", () => {
         timeEstimate: 45,
         priority: 82,
         description: "Leadership needs the summary.",
+        progress: 50,
+        elapsedMinutes: 20,
         subtasks: [{ task: "Draft bullets", duration: 15 }],
       },
     ],
@@ -154,7 +206,9 @@ test("planner normalization accepts existing task aliases", () => {
   assert.equal(normalized.proposedTasks.length, 1);
   assert.equal(normalized.proposedTasks[0].title, "Prepare weekly update");
   assert.equal(normalized.proposedTasks[0].minutes, 45);
-  assert.equal(normalized.proposedTasks[0].priorityScore, 82);
+  assert.equal(normalized.proposedTasks[0].priorityScore, undefined);
+  assert.equal(normalized.proposedTasks[0].progress, undefined);
+  assert.equal(normalized.proposedTasks[0].elapsedMinutes, undefined);
   assert.equal(normalized.proposedTasks[0].subtasks[0].title, "Draft bullets");
 });
 
@@ -291,7 +345,7 @@ test("context organize normalization drops unknown merge task ids", () => {
   assert.equal(normalized.mergeSuggestions.length, 0);
 });
 
-test("context organize merge fields are clamped", () => {
+test("context organize merge suggestions keep only subtasks", () => {
   const normalized = ai.normalizeContextOrganizeResponse({
     mergeSuggestions: [
       {
@@ -313,9 +367,9 @@ test("context organize merge fields are clamped", () => {
   });
 
   const merge = normalized.mergeSuggestions[0];
-  assert.equal(merge.priorityScore, 100);
-  assert.equal(merge.urgency, 5);
-  assert.equal(merge.impact, 1);
+  assert.equal(merge.priorityScore, undefined);
+  assert.equal(merge.urgency, undefined);
+  assert.equal(merge.impact, undefined);
   assert.equal(merge.subtasks[0].minutes, 5);
   assert.equal(merge.subtasks[1].minutes, 240);
 });

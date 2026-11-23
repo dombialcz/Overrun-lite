@@ -8,7 +8,7 @@
   const plannerResponseSchema = {
     type: "object",
     additionalProperties: false,
-    required: ["summary", "proposedTasks", "questions", "priorityUpdates", "warnings"],
+    required: ["summary", "proposedTasks", "questions", "warnings"],
     properties: {
       summary: { type: "string" },
       proposedTasks: {
@@ -19,10 +19,6 @@
           required: [
             "title",
             "minutes",
-            "priorityScore",
-            "priorityReason",
-            "urgency",
-            "impact",
             "destination",
             "startTime",
             "subtasks",
@@ -30,10 +26,6 @@
           properties: {
             title: { type: "string" },
             minutes: { type: "integer", minimum: 10, maximum: 480 },
-            priorityScore: { type: "integer", minimum: 1, maximum: 100 },
-            priorityReason: { type: "string" },
-            urgency: { type: "integer", minimum: 1, maximum: 5 },
-            impact: { type: "integer", minimum: 1, maximum: 5 },
             destination: { type: "string", enum: ["day", "backlog"] },
             startTime: {
               type: "string",
@@ -64,19 +56,6 @@
             id: { type: "string" },
             question: { type: "string" },
             reason: { type: "string" },
-          },
-        },
-      },
-      priorityUpdates: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["taskId", "priorityScore", "priorityReason"],
-          properties: {
-            taskId: { type: "string" },
-            priorityScore: { type: "integer", minimum: 1, maximum: 100 },
-            priorityReason: { type: "string" },
           },
         },
       },
@@ -140,19 +119,11 @@
           required: [
             "taskId",
             "reason",
-            "priorityScore",
-            "priorityReason",
-            "urgency",
-            "impact",
             "subtasks",
           ],
           properties: {
             taskId: { type: "string" },
             reason: { type: "string" },
-            priorityScore: { type: "integer", minimum: 1, maximum: 100 },
-            priorityReason: { type: "string" },
-            urgency: { type: "integer", minimum: 1, maximum: 5 },
-            impact: { type: "integer", minimum: 1, maximum: 5 },
             subtasks: plannerResponseSchema.properties.proposedTasks.items.properties.subtasks,
           },
         },
@@ -164,9 +135,9 @@
 
   const brainDumpPlanningGuidance = [
     "Produce a useful draft plan immediately and make reasonable everyday assumptions.",
-    "Ask at most two concise follow-up questions, and only when an answer would materially change a task's outcome, scope, deadline, priority, or actionability.",
+    "Ask at most two concise follow-up questions, and only when an answer would materially change a task's outcome, scope, deadline, or actionability.",
     "Do not ask whether the user owns ordinary tools or materials, which ordinary method they will use, or whether they will take routine precautions.",
-    "Do not create acquisition or preparation tasks unless the user explicitly says something is missing or blocking progress.",
+    "Do not create acquisition or preparation tasks unless the user explicitly says something is missing or blocking the work.",
     "Use subtasks only for genuinely complex work or for steps the user explicitly mentioned; leave routine decomposition for the task-breakdown feature.",
     "Put material safety concerns in brief warnings, never in questions or automatic subtasks.",
     "When clarifications are provided, treat their answers as authoritative, return a complete refined proposal, and do not repeat answered questions.",
@@ -176,14 +147,13 @@
     "An exact clock time such as 20:00, 8 pm, or 8:30 AM is a strong preference: distinguish am from pm, convert it to 24-hour HH:MM, and use it as that task's startTime when the day can be planned and the task fits the allowed range. The user's exact time takes precedence over preferredStartTime and convenient task ordering.",
     "For a flexible daypart such as morning, afternoon, evening, or night (including equivalents in the response language), choose a sensible time within that period and the allowed day range. As a default, interpret morning as 08:00-12:00, afternoon as 12:00-17:00, evening as 17:00-21:00, and night as 21:00 through dayEndTime.",
     "If an explicit time cannot be honored because the day cannot be planned, it conflicts, falls outside the allowed range, or exceeds the planning budget, do not silently replace it with an unrelated default time; put the task in the backlog when required and briefly explain the constraint in warnings.",
-    "When scheduling.canPlanDay is true, suggest a realistic non-overlapping day plan within its time range and maximum planned minutes; set fitting tasks to destination day with an HH:MM startTime, and put overflow or less important work in the backlog with an empty startTime.",
+    "When scheduling.canPlanDay is true, suggest a realistic non-overlapping day plan within its time range and maximum planned minutes; set fitting tasks to destination day with an HH:MM startTime, and put overflow work in the backlog with an empty startTime.",
     "When scheduling.canPlanDay is false, set every new task to destination backlog with an empty startTime.",
   ];
 
   const plannerSystemPrompt = [
     "You are Overrun Lite, an AI planning assistant.",
     "Turn messy brain dumps into concrete tasks for a local-first planner.",
-    "Optimize backlog ranking for impact plus urgency.",
     ...brainDumpPlanningGuidance,
     "Never claim a task is complete. Scheduling suggestions are drafts that require user review before they are applied.",
     "Return only valid JSON matching the requested schema.",
@@ -206,7 +176,7 @@
     "Compare a new brain dump against the user's current planned tasks and backlog.",
     "Propose genuinely new tasks, and propose merge suggestions when the dump overlaps existing tasks.",
     ...brainDumpPlanningGuidance,
-    "Merge suggestions may update priority, urgency, impact, priority reason, and append subtasks only.",
+    "Merge suggestions may append subtasks only.",
     "Never delete, complete, move, resize, or schedule existing tasks.",
     "Never claim work is done. Return only valid JSON matching the requested schema.",
   ].join(" ");
@@ -219,6 +189,64 @@
     return locale === "pl"
       ? "Write every natural-language value in the JSON response in Polish. Keep JSON property names and enum values exactly as required by the schema."
       : "Write every natural-language value in the JSON response in English. Keep JSON property names and enum values exactly as required by the schema.";
+  }
+
+  const progressMetadataKeys = new Set([
+    "progress",
+    "progressMinutes",
+    "elapsedMinutes",
+    "elapsedSeconds",
+    "doneMinutes",
+    "completedMinutes",
+    "completed",
+    "completedAt",
+    "percentComplete",
+    "percentageComplete",
+    "completionPercentage",
+  ]);
+
+  function stripProgressMetadata(value) {
+    if (Array.isArray(value)) return value.map(stripProgressMetadata);
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !progressMetadataKeys.has(key))
+        .map(([key, item]) => [key, stripProgressMetadata(item)])
+    );
+  }
+
+  function sanitizeTaskContext(value) {
+    const source = value && typeof value === "object" ? value : {};
+    const task = {};
+    [
+      "id",
+      "title",
+      "name",
+      "startTime",
+      "startMinutes",
+      "minutes",
+      "sourceProvider",
+      "sourceCalendarId",
+      "sourceEventId",
+      "sourceEventICalUID",
+      "sourceUpdated",
+    ].forEach((key) => {
+      if (source[key] !== undefined) task[key] = source[key];
+    });
+    task.subtasks = Array.isArray(source.subtasks)
+      ? source.subtasks.map((item) => {
+          const subtask = item && typeof item === "object" ? item : {};
+          return {
+            title: subtask.title || subtask.name || "",
+            minutes: subtask.minutes,
+          };
+        })
+      : [];
+    return stripProgressMetadata(task);
+  }
+
+  function sanitizeTaskList(value) {
+    return Array.isArray(value) ? value.map(sanitizeTaskContext) : [];
   }
 
   function buildPlannerMessages(payload) {
@@ -244,15 +272,12 @@
             locale,
             input: payload.input,
             clarifications,
-            currentDraft: payload.currentDraft || null,
+            currentDraft: stripProgressMetadata(payload.currentDraft || null),
             answers: payload.answers || {},
-            currentTasks: payload.currentTasks || [],
-            currentBacklog: payload.currentBacklog || [],
+            currentTasks: sanitizeTaskList(payload.currentTasks),
+            currentBacklog: sanitizeTaskList(payload.currentBacklog),
             scheduling,
             instructions: {
-              priorityScale: "1-100, where 100 is highest priority",
-              urgencyScale: "1-5, where 5 is most urgent",
-              impactScale: "1-5, where 5 is highest impact",
               defaultTaskMinutes: 60,
               minimumTaskMinutes: 10,
             },
@@ -281,26 +306,17 @@
             locale,
             input: payload.input,
             clarifications,
-            currentDraft: payload.currentDraft || null,
+            currentDraft: stripProgressMetadata(payload.currentDraft || null),
             answers: payload.answers || {},
-            currentTasks: payload.currentTasks || [],
-            currentBacklog: payload.currentBacklog || [],
+            currentTasks: sanitizeTaskList(payload.currentTasks),
+            currentBacklog: sanitizeTaskList(payload.currentBacklog),
             scheduling,
             instructions: {
-              priorityScale: "1-100, where 100 is highest priority",
-              urgencyScale: "1-5, where 5 is most urgent",
-              impactScale: "1-5, where 5 is highest impact",
               defaultTaskMinutes: 60,
               minimumTaskMinutes: 10,
               mergeOnlyByTaskId: true,
               newTasksOnlyWhenNoSimilarExistingTaskExists: true,
-              allowedMergeEffects: [
-                "priorityScore",
-                "priorityReason",
-                "urgency",
-                "impact",
-                "subtasks",
-              ],
+              allowedMergeEffects: ["subtasks"],
               forbiddenMergeEffects: [
                 "delete",
                 "complete",
@@ -336,10 +352,10 @@
           {
             mode: "task_breakdown",
             locale,
-            task: payload.task || {},
+            task: sanitizeTaskContext(payload.task),
             instructions: String(payload.instructions || ""),
             clarifications,
-            currentDraft: payload.currentDraft || null,
+            currentDraft: stripProgressMetadata(payload.currentDraft || null),
             granularity,
             applyMode,
             guidance: {
@@ -398,7 +414,6 @@
       summary: summary || "",
       proposedTasks: [],
       questions: [],
-      priorityUpdates: [],
       warnings: [],
     };
   }
@@ -416,9 +431,6 @@
       proposedTasks: proposedTasks.map((item) => normalizeTaskProposal(item, scheduling, locale)).filter(Boolean),
       questions: Array.isArray(source.questions)
         ? source.questions.map((item, index) => normalizeQuestion(item, index, locale)).filter(Boolean).slice(0, 2)
-        : [],
-      priorityUpdates: Array.isArray(source.priorityUpdates)
-        ? source.priorityUpdates.map((item) => normalizePriorityUpdate(item, locale)).filter(Boolean)
         : [],
       warnings: Array.isArray(source.warnings)
         ? source.warnings.map((item) => String(item || "").trim()).filter(Boolean)
@@ -466,12 +478,6 @@
     return {
       title,
       minutes,
-      priorityScore: clampInt(item.priorityScore || item.priority, 1, 100, 50),
-      priorityReason: String(item.priorityReason || item.description || localizedFallback(locale,
-        "Impact and urgency estimate.",
-        "Oszacowanie wpływu i pilności.")).trim(),
-      urgency: clampInt(item.urgency, 1, 5, 3),
-      impact: clampInt(item.impact, 1, 5, 3),
       destination,
       startTime: destination === "day"
         ? normalizeClockValue(item.startTime || item.scheduledStart || item.start, "", false)
@@ -542,12 +548,6 @@
       reason: String(item.reason || item.mergeReason || localizedFallback(locale,
         "Similar to the new brain dump.",
         "Podobne do nowego zrzutu myśli.")).trim(),
-      priorityScore: clampInt(item.priorityScore || item.priority, 1, 100, 50),
-      priorityReason: String(item.priorityReason || item.description || localizedFallback(locale,
-        "Updated from latest brain dump.",
-        "Zaktualizowano na podstawie najnowszego zrzutu myśli.")).trim(),
-      urgency: clampInt(item.urgency, 1, 5, 3),
-      impact: clampInt(item.impact, 1, 5, 3),
       subtasks: Array.isArray(item.subtasks)
         ? item.subtasks.map(normalizeSubtask).filter(Boolean)
         : [],
@@ -610,19 +610,6 @@
       reason: String(item.reason || localizedFallback(locale,
         "Clarifies the task before planning.",
         "Doprecyzowuje zadanie przed planowaniem.")).trim(),
-    };
-  }
-
-  function normalizePriorityUpdate(item, locale) {
-    if (!item || typeof item !== "object") return null;
-    const taskId = String(item.taskId || "").trim();
-    if (!taskId) return null;
-    return {
-      taskId,
-      priorityScore: clampInt(item.priorityScore, 1, 100, 50),
-      priorityReason: String(item.priorityReason || localizedFallback(locale,
-        "Updated from latest brain dump.",
-        "Zaktualizowano na podstawie najnowszego zrzutu myśli.")).trim(),
     };
   }
 

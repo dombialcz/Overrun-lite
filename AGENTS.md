@@ -14,6 +14,7 @@ User control is central: AI output is draft-only until the user reviews and appl
 - `tests/e2e/` contains Playwright regression coverage using the custom `{ ui }` fixture.
 - `README.md` documents running the app, AI modes, import/export workflows, and test commands.
 - `CHANGELOG.md` records recent user-visible changes.
+- `docs/mobile-app-plan.md` is the canonical mobile roadmap, milestone tracker, and cross-session handoff document.
 
 ## Working Rules
 
@@ -23,6 +24,7 @@ User control is central: AI output is draft-only until the user reviews and appl
 - Treat existing worktree changes as intentional user work. Do not revert them unless explicitly requested.
 - Keep GitHub Pages static-hosting compatibility unless a change explicitly targets Vercel-only behavior.
 - Keep user-visible AI behavior review-before-apply.
+- For mobile work, read `docs/mobile-app-plan.md`, limit the change to the active milestone, and update its checklist and decision log before handing off.
 
 ## Testing Rules
 

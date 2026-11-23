@@ -7,3 +7,8 @@ tmp/
 .env
 .env.*
 !.env.example
+dist/
+ios/App/App/public/
+ios/DerivedData/
+**/xcuserdata/
+.DS_Store

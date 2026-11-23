@@ -15,6 +15,7 @@ const STORAGE_KEYS = [
   "overrun_lite_review_draft",
   "overrun_lite_task_timer",
   "overrun_lite_theme",
+  "overrun_lite_day_view",
 ];
 
 export class AppUi {

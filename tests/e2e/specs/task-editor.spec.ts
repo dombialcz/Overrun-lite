@@ -11,7 +11,7 @@ test("new task stays a focused draft until Create and can be discarded", async (
   await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "false");
   await expect(ui.page.getByTestId("detail-task-title")).toBeFocused();
   await expect(ui.calendar.blocks()).toHaveCount(0);
-  await expect(ui.page.getByTestId("detail-advanced")).not.toHaveAttribute("open", "");
+  await expect(ui.page.getByTestId("detail-task-progress")).toHaveCount(0);
   await expect(ui.page.getByTestId("detail-ai-section")).toBeHidden();
 
   await ui.page.getByTestId("detail-task-title").fill("Discard this draft");
@@ -28,6 +28,36 @@ test("new task stays a focused draft until Create and can be discarded", async (
   await ui.calendar.openNewTask();
   await ui.page.keyboard.press("Escape");
   await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+});
+
+test("creating a task without a title explains what is missing", async ({ ui }) => {
+  await ui.calendar.openNewTask();
+  await ui.taskDetails.save();
+
+  await expect(ui.page.getByTestId("detail-task-title-error")).toBeVisible();
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "false");
+  await expect(ui.calendar.blocks()).toHaveCount(0);
+
+  await ui.page.getByTestId("detail-task-title").fill("A titled task");
+  await expect(ui.page.getByTestId("detail-task-title-error")).toBeHidden();
+});
+
+test("adding a subtask requires finishing the previous subtask first", async ({ ui }) => {
+  await ui.calendar.openNewTask();
+  await ui.page.getByTestId("detail-task-title").fill("Parent task");
+
+  await ui.page.getByTestId("detail-add-subtask").click();
+  await expect(ui.taskDetails.subtasks()).toHaveCount(1);
+
+  await ui.page.getByTestId("detail-add-subtask").click();
+  await expect(ui.taskDetails.subtasks()).toHaveCount(1);
+  await expect(ui.page.getByTestId("detail-subtask-validation")).toBeVisible();
+  await expect(ui.taskDetails.subtasks().first().getByTestId("detail-subtask-title")).toBeFocused();
+
+  await ui.taskDetails.subtasks().first().getByTestId("detail-subtask-title").fill("First step");
+  await expect(ui.page.getByTestId("detail-subtask-validation")).toBeHidden();
+  await ui.page.getByTestId("detail-add-subtask").click();
+  await expect(ui.taskDetails.subtasks()).toHaveCount(2);
 });
 
 test("Create persists manual subtasks with stable planner data", async ({ ui }) => {
@@ -203,4 +233,79 @@ test("subtask editor controls stay inside a narrow drawer", async ({ ui }) => {
   expect(metrics.right).toBeLessThanOrEqual(metrics.clientWidth);
   await expect(ui.page.getByTestId("save-task-editor")).toBeVisible();
   expect(ui.consoleErrors).toEqual([]);
+});
+
+test("mobile task editor is a bottom sheet with backdrop and swipe dismissal", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.calendar.openNewTask();
+
+  const drawer = ui.taskDetails.drawer;
+  const grabber = ui.page.getByTestId("task-editor-grabber");
+  await expect(grabber).toBeVisible();
+  await expect(ui.page.getByTestId("close-task-details")).toBeVisible();
+
+  await drawer.click({ position: { x: 6, y: 6 } });
+  await expect(drawer).toHaveAttribute("aria-hidden", "true");
+
+  await ui.calendar.openNewTask();
+  const box = await grabber.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) return;
+  const x = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  await ui.page.mouse.move(x, startY);
+  await ui.page.mouse.down();
+  await ui.page.mouse.move(x, startY + 180, { steps: 6 });
+  await ui.page.mouse.up();
+
+  await expect(drawer).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.blocks()).toHaveCount(0);
+});
+
+test("mobile task editor keeps the sticky header flush with the drag handle", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.calendar.openNewTask();
+  await ui.taskDetails.addSubtask("A step to make the editor scroll", 15);
+
+  const getHeaderGap = () => ui.page.evaluate(() => {
+    const grabber = document.querySelector<HTMLElement>(".task-editor-grabber");
+    const header = document.querySelector<HTMLElement>(".task-editor-header");
+    if (!grabber || !header) return null;
+    return header.getBoundingClientRect().top - grabber.getBoundingClientRect().bottom;
+  });
+
+  const initialGap = await getHeaderGap();
+  expect(initialGap).not.toBeNull();
+  expect(Math.abs(initialGap ?? 99)).toBeLessThanOrEqual(1);
+
+  await ui.page.getByTestId("task-editor-form").evaluate((form) => {
+    form.scrollTop = 240;
+    form.dispatchEvent(new Event("scroll"));
+  });
+  await expect.poll(getHeaderGap).toBeLessThanOrEqual(1);
+});
+
+test("mobile editable controls keep a focus-safe text size", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+
+  const visibleEditableFontSizes = () => ui.page.locator(
+    'input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]), select, textarea'
+  ).evaluateAll((elements) => elements
+    .filter((element) => element.getClientRects().length > 0 && !element.closest('[aria-hidden="true"]'))
+    .map((element) => ({
+      tag: element.tagName.toLowerCase(),
+      testId: element.getAttribute("data-testid"),
+      fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
+    })));
+
+  const initialSizes = await visibleEditableFontSizes();
+  expect(initialSizes.length).toBeGreaterThan(0);
+  expect(initialSizes.every(({ fontSize }) => fontSize >= 16)).toBe(true);
+
+  await ui.calendar.openNewTask();
+  await ui.taskDetails.addSubtask("Focus-safe subtask", 15);
+
+  const editorSizes = await visibleEditableFontSizes();
+  expect(editorSizes.length).toBeGreaterThan(initialSizes.length);
+  expect(editorSizes.every(({ fontSize }) => fontSize >= 16)).toBe(true);
 });

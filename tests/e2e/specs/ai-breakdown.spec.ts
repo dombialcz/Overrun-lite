@@ -169,7 +169,6 @@ test("context organize reviews new tasks and merge suggestions before applying",
             type: "task",
             startMinutes: 60,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -186,7 +185,6 @@ test("context organize reviews new tasks and merge suggestions before applying",
             type: "task",
             startMinutes: 0,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 30,
             urgency: 2,
@@ -203,10 +201,14 @@ test("context organize reviews new tasks and merge suggestions before applying",
   await ui.page.route("**/chat/completions", async (route) => {
     const payload = route.request().postDataJSON();
     const prompt = payload.messages.map((message: { content: string }) => message.content).join("\n");
+    const request = JSON.parse(payload.messages.find((message: { role: string }) => message.role === "user").content);
     expect(prompt).toContain("context_organize");
     expect(prompt).toContain("cake ingredients");
     expect(prompt).toContain("planned-1");
     expect(prompt).toContain("backlog-1");
+    expect(request.currentTasks[0]).not.toHaveProperty("completed");
+    expect(request.currentBacklog[0]).not.toHaveProperty("completed");
+    expect(request.currentBacklog[0].subtasks[0]).not.toHaveProperty("completed");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -267,7 +269,9 @@ test("context organize reviews new tasks and merge suggestions before applying",
   const storedBeforeApply = await ui.page.evaluate(() =>
     JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
   );
-  expect(storedBeforeApply.backlog[0].priorityScore).toBe(30);
+  expect(storedBeforeApply.backlog[0]).not.toHaveProperty("priorityScore");
+  expect(storedBeforeApply.backlog[0]).not.toHaveProperty("urgency");
+  expect(storedBeforeApply.backlog[0]).not.toHaveProperty("impact");
   expect(storedBeforeApply.backlog[0].subtasks.map((item: { title: string }) => item.title)).toEqual(["Choose a recipe"]);
 
   await ui.aiReview.rejectMergeSuggestion(1);
@@ -280,14 +284,14 @@ test("context organize reviews new tasks and merge suggestions before applying",
   const launch = storedAfterApply.tasks.find((task: { id: string }) => task.id === "planned-1");
   const newTask = storedAfterApply.backlog.find((task: { name: string }) => task.name === "Buy cake ingredients");
 
-  expect(cake.priorityScore).toBe(88);
-  expect(cake.urgency).toBe(5);
-  expect(cake.impact).toBe(4);
+  expect(cake).not.toHaveProperty("priorityScore");
+  expect(cake).not.toHaveProperty("urgency");
+  expect(cake).not.toHaveProperty("impact");
   expect(cake.subtasks.map((item: { title: string }) => item.title)).toEqual([
     "Choose a recipe",
     "Check pantry for missing ingredients",
   ]);
-  expect(launch.priorityScore).toBe(50);
+  expect(launch).not.toHaveProperty("priorityScore");
   expect(launch.subtasks).toEqual([]);
   expect(newTask).toBeTruthy();
   expect(ui.consoleErrors).toEqual([]);
@@ -306,6 +310,8 @@ test("task agent export creates a static prompt without mutating state", async (
   expect(prompt).toContain("## Task");
   expect(prompt).toContain("New task");
   expect(prompt).toContain("## Constraints");
+  expect(prompt).not.toContain("Done so far");
+  expect(prompt).not.toContain("- Status:");
 
   const after = await ui.page.evaluate(() => localStorage.getItem("overrun_lite_state"));
   expect(after).toBe(before);
