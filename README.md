@@ -1,8 +1,16 @@
 # Overrun Lite
 
-Work in progress demo: https://dombialcz.github.io/Overrun-lite/
+Demo: https://dombialcz.github.io/Overrun-lite/
 
 Local-first AI-assisted daily planner.
+
+## Mobile application roadmap
+
+The proposed iOS and Android work is tracked in
+[`docs/mobile-app-plan.md`](docs/mobile-app-plan.md). It records the Capacitor
+architecture, offline storage and synchronization contract, notification and
+push-to-talk milestones, acceptance criteria, risks, and instructions for
+continuing the work in future agent sessions.
 
 ## Run locally
 
@@ -55,8 +63,7 @@ existing day or open backlog item likewise uses Save or Cancel instead of
 persisting every keystroke.
 
 Subtasks can be added, renamed, estimated, completed, and removed directly in
-the task editor. Priority and progress settings are kept in a collapsed details
-section, while `Help me get started` stays folded until AI suggestions are
+the task editor. `Help me get started` stays folded until AI suggestions are
 needed. AI-proposed subtasks still use the separate review-before-apply flow.
 
 ## Invite-only accounts and sync
@@ -192,7 +199,7 @@ Then open `Settings` in the app and use:
 
 The app sends Chat Completions-compatible requests to `/chat/completions`.
 Small local models may return non-standard task JSON, so the client accepts common
-aliases such as `task`, `priority`, `timeEstimate`, `steps`, `items`, and
+aliases such as `task`, `timeEstimate`, `steps`, `items`, and
 `currentTasks`.
 
 ## Import and export
@@ -200,7 +207,7 @@ aliases such as `task`, `priority`, `timeEstimate`, `steps`, `items`, and
 The `Data & exports` section in Settings supports local file workflows:
 
 - `Export day snapshot` downloads versioned JSON with day tasks, backlog,
-  progress, subtasks, and summary totals.
+  completion state, subtasks, and summary totals.
 - `Export day report` downloads a plain text hour-by-hour report for timesheets and
   daily standup notes.
 - `Export backlog` exports a versioned backlog JSON.
@@ -208,7 +215,7 @@ The `Data & exports` section in Settings supports local file workflows:
   raw task arrays. Imports are incremental and skip duplicates.
 - Completed day tasks move immediately into the collapsed `Done` section below
   the open backlog. Done items are newest-first and can be restored to the open
-  backlog with their progress reset.
+  backlog.
 - `Export backlog` includes open and Done items. `Clear backlog` removes open
   backlog items only after explicit confirmation and preserves Done history.
 

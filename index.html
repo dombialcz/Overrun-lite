@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https: http:; object-src 'none'; base-uri 'self'; form-action 'self'"
@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Playfair+Display:wght@600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=20260903-focus-summary" />
+    <link rel="stylesheet" href="styles.css?v=20261016-active-list" />
   </head>
   <body>
     <div class="bg-layer"></div>
@@ -29,7 +29,7 @@
           <div class="sync-summary">
             <span id="sync-status" data-testid="sync-status" data-i18n="Local only">Local only</span>
           </div>
-          <button id="open-account" class="ghost" data-testid="open-account" data-i18n="Sign in">Sign in</button>
+          <button id="open-account" class="primary account-action" data-testid="open-account" data-i18n="Sign in">Sign in</button>
           <button
             id="theme-toggle"
             class="ghost"
@@ -42,118 +42,145 @@
           <button id="open-settings" class="ghost" data-i18n="Settings">Settings</button>
         </div>
       </div>
-      <div class="today-strip" aria-label="Today overview" data-i18n-aria-label="Today overview">
-        <span class="today-label" data-i18n="Today">Today</span>
-        <div class="today-totals">
-          <span id="total-time">0h 0m planned</span>
-          <span class="summary-divider" aria-hidden="true"></span>
-          <span id="done-time">0h 0m done</span>
-        </div>
-        <div id="focus-summary" class="focus-summary" data-testid="focus-summary" aria-live="polite">
-          <div class="focus-summary-copy">
-            <span id="focus-label" class="focus-label" data-i18n="Today">Today</span>
-            <strong id="focus-task" class="focus-task" data-i18n="No task in focus">No task in focus</strong>
-          </div>
-          <button id="toggle-focus" class="ghost focus-action" type="button" data-testid="header-focus-action" data-i18n="Start" hidden>Start</button>
-        </div>
-      </div>
     </header>
 
-    <section class="inbox-shell" data-testid="inbox">
-      <div class="inbox-panel">
-        <div class="inbox-copy">
-          <p class="eyebrow" data-i18n="Brain dump">Brain dump</p>
-          <h1 data-i18n="Dump everything on your mind.">Dump everything on your mind.</h1>
-          <p class="helper" data-i18n="AI turns this into prioritized draft tasks. You review everything before it reaches your day plan or backlog.">
-            AI turns this into prioritized draft tasks. You review everything before it reaches
-            your day plan or backlog.
-          </p>
-        </div>
-        <div class="inbox-controls">
-          <label for="brain-dump" data-i18n="Inbox">Inbox</label>
-          <textarea
-            id="brain-dump"
-            data-testid="brain-dump"
-            rows="7"
-            maxlength="1800"
-            placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
-            data-i18n-placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
-          ></textarea>
-          <div class="inbox-actions">
-            <button id="analyze-dump" class="primary" data-testid="analyze-dump" data-i18n="Analyze dump">Analyze dump</button>
-            <button id="context-organize" class="ghost" data-testid="context-organize" data-i18n="Organize with current plan">Organize with current plan</button>
-            <button id="clear-dump" class="ghost" data-testid="clear-dump" data-i18n="Clear">Clear</button>
+    <main class="layout mobile-screen-deck" data-testid="mobile-screen-deck">
+      <section class="mobile-screen mobile-screen-inbox">
+        <section class="inbox-shell" data-testid="inbox">
+          <div class="inbox-panel">
+            <div class="inbox-copy">
+              <p class="eyebrow" data-i18n="Brain dump">Brain dump</p>
+              <h1 data-i18n="Dump everything on your mind.">Dump everything on your mind.</h1>
+              <p class="helper" data-i18n="AI turns this into draft tasks. You review everything before it reaches your day plan or backlog.">
+                AI turns this into draft tasks. You review everything before it reaches
+                your day plan or backlog.
+              </p>
+            </div>
+            <div class="inbox-controls">
+              <label for="brain-dump" data-i18n="Inbox">Inbox</label>
+              <textarea
+                id="brain-dump"
+                data-testid="brain-dump"
+                rows="7"
+                maxlength="1800"
+                placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
+                data-i18n-placeholder="Example: Need to prepare the launch email, book dentist, figure out the onboarding bugs, and plan what to do about taxes..."
+              ></textarea>
+              <div class="inbox-actions">
+                <button id="analyze-dump" class="primary" data-testid="analyze-dump" data-i18n="Analyze dump">Analyze dump</button>
+                <button id="context-organize" class="ghost" data-testid="context-organize" data-i18n="Organize with current plan">Organize with current plan</button>
+                <button id="clear-dump" class="ghost" data-testid="clear-dump" data-i18n="Clear">Clear</button>
+              </div>
+              <div class="inbox-feedback">
+                <span id="ai-status" class="status-line" role="status" data-testid="ai-status"></span>
+                <span id="ai-usage" class="ai-usage" data-testid="ai-usage"></span>
+                <span id="dump-char-count" class="char-count">0 / 1800</span>
+              </div>
+            </div>
           </div>
-          <div class="inbox-feedback">
-            <span id="ai-status" class="status-line" role="status" data-testid="ai-status"></span>
-            <span id="ai-usage" class="ai-usage" data-testid="ai-usage"></span>
-            <span id="dump-char-count" class="char-count">0 / 1800</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <main class="layout">
-      <section class="panel" data-testid="backlog">
-        <div class="section-heading">
-          <div>
-            <h2 data-i18n="Backlog">Backlog</h2>
-            <p class="helper" data-i18n="Ranked by impact and urgency. Pick items for today when ready.">Ranked by impact and urgency. Pick items for today when ready.</p>
-          </div>
-          <button id="sort-backlog" class="ghost" data-testid="sort-backlog" data-i18n="Sort">Sort</button>
-        </div>
-        <div id="backlog-list" class="task-list" data-testid="backlog-list"></div>
-        <details id="done-backlog" class="done-backlog" data-testid="done-backlog">
-          <summary data-testid="done-backlog-toggle">
-            <span data-i18n="Done">Done</span>
-            <span id="done-backlog-count" class="done-count">0</span>
-          </summary>
-          <div id="done-backlog-list" class="task-list" data-testid="done-backlog-list"></div>
-        </details>
+        </section>
       </section>
 
-      <section class="calendar" data-testid="calendar">
-        <div class="calendar-header">
-          <div>
-            <h2 data-i18n="Day view">Day view</h2>
-            <p class="helper" data-i18n="Drag blocks to resize in 5-minute steps.">Drag blocks to resize in 5-minute steps.</p>
+      <section class="mobile-screen mobile-screen-schedule">
+        <section class="calendar" data-testid="calendar">
+          <div class="calendar-header">
+            <div>
+              <h2 data-i18n="Day view">Day view</h2>
+              <p id="day-view-help" class="helper" data-i18n="Tap a block to edit. Hold briefly, then drag vertically to move it; use the bottom grip to resize.">
+                Tap a block to edit. Hold briefly, then drag vertically to move it; use the bottom grip to resize.
+              </p>
+            </div>
+            <div class="calendar-actions">
+              <button id="add-task" class="primary" data-testid="add-task" data-i18n="Add task">Add task</button>
+              <button id="add-meeting" class="ghost" data-testid="add-meeting" data-i18n="Add meeting">Add meeting</button>
+            </div>
           </div>
-          <div class="calendar-actions">
-            <button id="add-task" class="primary" data-testid="add-task" data-i18n="Add task">Add task</button>
-            <button id="add-meeting" class="ghost" data-testid="add-meeting" data-i18n="Add meeting">Add meeting</button>
+          <div class="planner-view-tabs" role="tablist" aria-label="Active task views" data-i18n-aria-label="Active task views" data-testid="planner-view-tabs">
+            <button
+              id="schedule-view-tab"
+              class="planner-view-tab is-active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="schedule-view"
+              data-view="schedule"
+              data-testid="schedule-view-tab"
+              data-i18n="Schedule"
+            >Schedule</button>
+            <button
+              id="list-view-tab"
+              class="planner-view-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="active-list-view"
+              data-view="list"
+              data-testid="list-view-tab"
+              data-i18n="List"
+            >List</button>
           </div>
-        </div>
-        <div class="calendar-grid">
-          <div class="time-labels">
-            <span>04:00</span>
-            <span>05:00</span>
-            <span>06:00</span>
-            <span>07:00</span>
-            <span>08:00</span>
-            <span>09:00</span>
-            <span>10:00</span>
-            <span>11:00</span>
-            <span>12:00</span>
-            <span>13:00</span>
-            <span>14:00</span>
-            <span>15:00</span>
-            <span>16:00</span>
-            <span>17:00</span>
-            <span>18:00</span>
-            <span>19:00</span>
-            <span>20:00</span>
-            <span>21:00</span>
-            <span>22:00</span>
-            <span>23:00</span>
-            <span class="time-label-end">24:00</span>
+          <div id="schedule-view" role="tabpanel" aria-labelledby="schedule-view-tab" data-testid="schedule-view">
+            <div class="calendar-grid">
+              <div class="time-labels">
+                <span>04:00</span>
+                <span>05:00</span>
+                <span>06:00</span>
+                <span>07:00</span>
+                <span>08:00</span>
+                <span>09:00</span>
+                <span>10:00</span>
+                <span>11:00</span>
+                <span>12:00</span>
+                <span>13:00</span>
+                <span>14:00</span>
+                <span>15:00</span>
+                <span>16:00</span>
+                <span>17:00</span>
+                <span>18:00</span>
+                <span>19:00</span>
+                <span>20:00</span>
+                <span>21:00</span>
+                <span>22:00</span>
+                <span>23:00</span>
+                <span class="time-label-end">24:00</span>
+              </div>
+              <div class="calendar-day">
+                <div class="grid-lines"></div>
+                <div id="calendar-blocks" class="calendar-blocks" data-testid="calendar-blocks"></div>
+              </div>
+            </div>
           </div>
-          <div class="calendar-day">
-            <div class="grid-lines"></div>
-            <div id="calendar-blocks" class="calendar-blocks" data-testid="calendar-blocks"></div>
+          <div id="active-list-view" role="tabpanel" aria-labelledby="list-view-tab" data-testid="active-list-view" hidden>
+            <div id="active-task-list" class="active-task-list" data-testid="active-task-list"></div>
           </div>
-        </div>
+        </section>
+      </section>
+
+      <section class="mobile-screen mobile-screen-backlog">
+        <section class="panel" data-testid="backlog">
+          <div class="section-heading">
+            <div>
+              <h2 data-i18n="Backlog">Backlog</h2>
+              <p class="helper" data-i18n="Keep unscheduled work here until you are ready to place it on your day.">Keep unscheduled work here until you are ready to place it on your day.</p>
+            </div>
+          </div>
+          <div id="backlog-list" class="task-list" data-testid="backlog-list"></div>
+          <details id="done-backlog" class="done-backlog" data-testid="done-backlog">
+            <summary data-testid="done-backlog-toggle">
+              <span data-i18n="Done">Done</span>
+              <span id="done-backlog-count" class="done-count">0</span>
+            </summary>
+            <div id="done-backlog-list" class="task-list" data-testid="done-backlog-list"></div>
+          </details>
+        </section>
       </section>
     </main>
+
+    <nav class="mobile-pagination" aria-label="Planner screens" data-testid="mobile-pagination" hidden>
+      <button class="mobile-pagination-dot is-active" type="button" data-screen-index="0" aria-label="Brain dump" aria-current="true"></button>
+      <button class="mobile-pagination-dot" type="button" data-screen-index="1" aria-label="Day view"></button>
+      <button class="mobile-pagination-dot" type="button" data-screen-index="2" aria-label="Backlog"></button>
+    </nav>
 
     <aside id="account-panel" class="drawer" aria-hidden="true" data-testid="account-drawer">
       <div class="drawer-card">
@@ -409,7 +436,7 @@
 
     <aside
       id="task-details-panel"
-      class="drawer"
+      class="drawer task-editor-drawer"
       aria-hidden="true"
       aria-modal="true"
       aria-labelledby="detail-heading"
@@ -417,7 +444,8 @@
       data-testid="task-details-drawer"
     >
       <div class="drawer-card task-editor-card">
-        <form id="task-editor-form" class="task-editor-form" data-testid="task-editor-form">
+        <div id="task-editor-grabber" class="task-editor-grabber" data-testid="task-editor-grabber" aria-hidden="true"></div>
+        <form id="task-editor-form" class="task-editor-form" data-testid="task-editor-form" novalidate>
           <div class="drawer-header task-editor-header">
             <div>
               <p id="detail-eyebrow" class="eyebrow" data-i18n="Task editor">Task editor</p>
@@ -435,9 +463,11 @@
                 maxlength="180"
                 placeholder="What needs doing?"
                 data-i18n-placeholder="What needs doing?"
+                aria-describedby="detail-task-title-error"
                 required
               />
             </label>
+            <p id="detail-task-title-error" class="field-error" data-testid="detail-task-title-error" role="alert" hidden data-i18n="Enter a title.">Enter a title.</p>
 
             <div class="detail-grid task-schedule-grid">
               <label id="detail-task-start-field" for="detail-task-start"><span data-i18n="Start time">Start time</span>
@@ -457,40 +487,9 @@
               </div>
               <button id="detail-add-subtask" class="ghost compact-button" type="button" data-testid="detail-add-subtask" data-i18n="Add subtask">Add subtask</button>
             </div>
+            <p id="detail-subtask-validation" class="field-error" data-testid="detail-subtask-validation" role="alert" hidden data-i18n="Enter a subtask title.">Enter a subtask title.</p>
             <div id="detail-subtasks" class="detail-subtasks" data-testid="detail-subtasks"></div>
           </section>
-
-          <details id="detail-advanced" class="detail-disclosure" data-testid="detail-advanced">
-            <summary>
-              <span data-i18n="Priority & progress">Priority &amp; progress</span>
-              <span id="detail-advanced-summary" class="disclosure-summary-value"></span>
-            </summary>
-            <div class="detail-disclosure-body">
-              <div class="detail-grid">
-                <label for="detail-task-progress"><span data-i18n="Done minutes">Done minutes</span>
-                  <input id="detail-task-progress" data-testid="detail-task-progress" type="number" min="0" max="480" step="5" />
-                </label>
-                <label for="detail-priority-score"><span data-i18n="Priority">Priority</span>
-                  <select id="detail-priority-score" data-testid="detail-priority-score">
-                    <option value="LOW" data-i18n="LOW">LOW</option>
-                    <option value="MEDIUM" data-i18n="MEDIUM">MEDIUM</option>
-                    <option value="HIGH" data-i18n="HIGH">HIGH</option>
-                    <option value="CRITICAL" data-i18n="CRITICAL">CRITICAL</option>
-                  </select>
-                </label>
-                <label for="detail-impact"><span data-i18n="Impact">Impact</span>
-                  <input id="detail-impact" data-testid="detail-impact" type="number" min="1" max="5" />
-                </label>
-                <label for="detail-urgency"><span data-i18n="Urgency">Urgency</span>
-                  <input id="detail-urgency" data-testid="detail-urgency" type="number" min="1" max="5" />
-                </label>
-              </div>
-
-              <label for="detail-priority-reason"><span data-i18n="Priority reason">Priority reason</span>
-                <textarea id="detail-priority-reason" data-testid="detail-priority-reason" rows="3"></textarea>
-              </label>
-            </div>
-          </details>
 
           <details id="detail-ai-section" class="detail-disclosure" data-testid="detail-ai-section">
             <summary>

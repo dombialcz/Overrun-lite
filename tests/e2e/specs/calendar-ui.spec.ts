@@ -12,28 +12,108 @@ test("app loads without console errors", async ({ ui }) => {
   expect(ui.consoleErrors).toEqual([]);
 });
 
-test("day header starts and stops the current or next task instead of showing a fixed countdown", async ({ ui }) => {
-  const summary = ui.page.getByTestId("focus-summary");
-  const action = ui.page.getByTestId("header-focus-action");
+test("desktop keeps the backlog beside the day view", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 1280, height: 900 });
 
-  await expect(summary).toContainText("No task in focus");
-  await expect(action).toBeHidden();
-  await expect(ui.page.locator("#day-timer")).toHaveCount(0);
+  const positions = await Promise.all([
+    ui.backlog.root.boundingBox(),
+    ui.calendar.root.boundingBox(),
+  ]);
+  const [backlog, calendar] = positions;
+  expect(backlog).not.toBeNull();
+  expect(calendar).not.toBeNull();
+  expect(Math.abs(backlog!.y - calendar!.y)).toBeLessThanOrEqual(1);
+  expect(backlog!.x + backlog!.width).toBeLessThan(calendar!.x);
 
+  await ui.calendar.showListView();
+  const listPositions = await Promise.all([
+    ui.backlog.root.boundingBox(),
+    ui.calendar.root.boundingBox(),
+  ]);
+  expect(Math.abs(listPositions[0]!.y - listPositions[1]!.y)).toBeLessThanOrEqual(1);
+
+  await ui.page.setViewportSize({ width: 800, height: 900 });
+  const narrowPositions = await Promise.all([
+    ui.backlog.root.boundingBox(),
+    ui.calendar.root.boundingBox(),
+  ]);
+  expect(Math.abs(narrowPositions[0]!.x - narrowPositions[1]!.x)).toBeLessThanOrEqual(1);
+  expect(narrowPositions[1]!.y + narrowPositions[1]!.height).toBeLessThan(narrowPositions[0]!.y);
+  expect(ui.consoleErrors).toEqual([]);
+});
+
+test("planner keeps attention on the schedule without the status strip or ranking labels", async ({ ui }) => {
+  await expect(ui.page.locator(".today-strip")).toHaveCount(0);
+  await expect(ui.page.getByTestId("focus-summary")).toHaveCount(0);
   await ui.calendar.addTask("Prepare launch brief");
-  await expect(summary).toContainText("Up next");
-  await expect(summary).toContainText("Prepare launch brief");
-  await expect(action).toHaveText("Start");
+  await expect(ui.calendar.block(0)).toContainText("08:00");
+  await expect(ui.calendar.block(0)).toContainText("1h 0m");
+  await expect(ui.calendar.block(0)).not.toContainText(/priority|impact|urgency/i);
+  expect(ui.consoleErrors).toEqual([]);
+});
 
-  await action.click();
-  await expect(summary).toContainText("In focus");
-  await expect(action).toHaveText("Stop");
-  await expect(ui.calendar.block(0)).toHaveClass(/timer-active/);
+test("active tasks can be viewed as a chronological list and opened for editing", async ({ ui }) => {
+  await ui.calendar.addTask("Later task");
+  await ui.calendar.openTask(0);
+  await ui.taskDetails.setStartTime("11:00");
+  await ui.calendar.addTask("Earlier task");
+  await ui.calendar.openTask(1);
+  await ui.taskDetails.setStartTime("07:30");
 
-  await action.click();
-  await expect(summary).toContainText("Up next");
-  await expect(action).toHaveText("Start");
-  await expect(ui.calendar.block(0)).not.toHaveClass(/timer-active/);
+  await ui.calendar.showListView();
+
+  await expect(ui.calendar.listViewTab).toHaveAttribute("aria-selected", "true");
+  await expect(ui.page.getByTestId("schedule-view")).toBeHidden();
+  await expect(ui.page.getByTestId("active-list-view")).toBeVisible();
+  await expect(ui.page.locator("#day-view-help")).toHaveText(
+    "Tap a task to edit. Tasks are ordered by scheduled start."
+  );
+  await expect(ui.calendar.activeListItems()).toHaveCount(2);
+  await expect(ui.calendar.activeListItems().nth(0)).toContainText("Earlier task");
+  await expect(ui.calendar.activeListItems().nth(0)).toContainText("07:30");
+  await expect(ui.calendar.activeListItems().nth(1)).toContainText("Later task");
+  await expect(ui.calendar.activeListItems().nth(1)).toContainText("11:00");
+
+  await ui.calendar.activeListItems().nth(0).click();
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "false");
+  await expect(ui.page.getByTestId("detail-task-title")).toHaveValue("Earlier task");
+  await ui.page.getByTestId("close-task-details").click();
+  await ui.calendar.showScheduleView();
+  await expect(ui.page.locator("#day-view-help")).toContainText("drag vertically");
+  expect(ui.consoleErrors).toEqual([]);
+});
+
+test("the selected active-task view persists across reloads", async ({ ui }) => {
+  await ui.calendar.showListView();
+  await ui.page.reload();
+
+  await expect(ui.calendar.listViewTab).toHaveAttribute("aria-selected", "true");
+  await expect(ui.page.getByTestId("active-list-view")).toBeVisible();
+  await expect(ui.page.getByTestId("schedule-view")).toBeHidden();
+
+  await ui.calendar.showScheduleView();
+  await ui.page.reload();
+
+  await expect(ui.calendar.scheduleViewTab).toHaveAttribute("aria-selected", "true");
+  await expect(ui.page.getByTestId("schedule-view")).toBeVisible();
+  await expect(ui.page.getByTestId("active-list-view")).toBeHidden();
+  expect(ui.consoleErrors).toEqual([]);
+});
+
+test("active task list works on mobile and exposes an empty state", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.page.emulateMedia({ reducedMotion: "reduce" });
+  await ui.page.getByTestId("mobile-pagination").locator(".mobile-pagination-dot").nth(1).click();
+  await ui.calendar.showListView();
+
+  await expect(ui.calendar.activeList).toContainText("No active tasks yet.");
+  await ui.calendar.addTask("Mobile list task");
+  await ui.calendar.showListView();
+  await expect(ui.calendar.activeListItems()).toHaveCount(1);
+  await expect(ui.calendar.activeListItems().first()).toContainText("Mobile list task");
+
+  const overflow = await ui.page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(overflow).toBe(false);
   expect(ui.consoleErrors).toEqual([]);
 });
 
@@ -87,7 +167,6 @@ test("calendar task blocks stay compact and open task details", async ({ ui }) =
 
 test("Start and Stop only control the day-task emphasis", async ({ ui }) => {
   await ui.calendar.addTask("Focus on this task");
-  await expect(ui.calendar.block(0).getByTestId("calendar-progress")).toHaveCount(0);
   await expect(ui.calendar.block(0)).not.toContainText("left");
 
   await ui.calendar.openTask(0);
@@ -106,7 +185,8 @@ test("Start and Stop only control the day-task emphasis", async ({ ui }) => {
     planner: JSON.parse(localStorage.getItem("overrun_lite_state") || "{}"),
     timer: localStorage.getItem("overrun_lite_task_timer"),
   }));
-  expect(stored.planner.tasks[0].elapsedSeconds).toBe(0);
+  expect(stored.planner.tasks[0]).not.toHaveProperty("elapsedMinutes");
+  expect(stored.planner.tasks[0]).not.toHaveProperty("elapsedSeconds");
   expect(stored.timer).toBeNull();
 });
 
@@ -141,7 +221,7 @@ test("starting another task transfers the persistent emphasis", async ({ ui }) =
   await expect(ui.calendar.block(1)).not.toHaveClass(/timer-active/);
 });
 
-test("an active task never completes when its estimate is reached", async ({ ui }) => {
+test("legacy progress is discarded without completing an active task", async ({ ui }) => {
   await ui.page.evaluate(() => {
     localStorage.setItem("overrun_lite_state", JSON.stringify({
       tasks: [{
@@ -166,7 +246,9 @@ test("an active task never completes when its estimate is reached", async ({ ui 
   const stored = await ui.page.evaluate(() =>
     JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
   );
-  expect(stored.tasks[0]).toMatchObject({ completed: false, elapsedSeconds: 600 });
+  expect(stored.tasks[0]).toMatchObject({ completed: false });
+  expect(stored.tasks[0]).not.toHaveProperty("elapsedMinutes");
+  expect(stored.tasks[0]).not.toHaveProperty("elapsedSeconds");
   expect(stored.backlog).toEqual([]);
 });
 
@@ -204,7 +286,7 @@ test("completing tasks archives them immediately in newest-first Done order", as
 
   await ui.calendar.openTask(0);
   await ui.page.getByTestId("detail-task-title").fill("Latest completed");
-  await ui.taskDetails.setProgress(60);
+  await ui.taskDetails.markDone();
 
   await expect(ui.calendar.blocks()).toHaveCount(0);
   await ui.backlog.doneToggle.click();
@@ -213,7 +295,7 @@ test("completing tasks archives them immediately in newest-first Done order", as
   await expect(ui.backlog.doneItems().nth(1)).toContainText("First completed");
 });
 
-test("restoring a Done task returns it to the open backlog with reset progress", async ({ ui }) => {
+test("restoring a Done task returns it to the open backlog", async ({ ui }) => {
   await ui.calendar.addTask();
   await ui.calendar.openTask(0);
   await ui.taskDetails.markDone();
@@ -223,7 +305,9 @@ test("restoring a Done task returns it to the open backlog with reset progress",
   await expect(ui.backlog.doneItems()).toHaveCount(0);
   await expect(ui.backlog.items()).toHaveCount(1);
   const stored = await ui.page.evaluate(() => JSON.parse(localStorage.getItem("overrun_lite_state") || "{}"));
-  expect(stored.backlog[0]).toMatchObject({ completed: false, completedAt: null, elapsedMinutes: 0 });
+  expect(stored.backlog[0]).toMatchObject({ completed: false, completedAt: null });
+  expect(stored.backlog[0]).not.toHaveProperty("elapsedMinutes");
+  expect(stored.backlog[0]).not.toHaveProperty("elapsedSeconds");
 });
 
 test("short task keeps a readable minimum height", async ({ ui }) => {
@@ -240,6 +324,12 @@ test("short task keeps a readable minimum height", async ({ ui }) => {
 
 test("mobile calendar keeps hour labels in a vertical rail", async ({ ui }) => {
   await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.page.emulateMedia({ reducedMotion: "reduce" });
+  await ui.page.getByTestId("mobile-pagination").locator(".mobile-pagination-dot").nth(1).click();
+  await expect(ui.page.getByTestId("mobile-pagination").locator(".mobile-pagination-dot").nth(1)).toHaveAttribute(
+    "aria-current",
+    "true"
+  );
 
   const metrics = await ui.calendar.mobileGridMetrics();
 
@@ -281,6 +371,124 @@ test("task blocks can be moved to a specific hour", async ({ ui }) => {
   expect(afterDetails.text).toContain("10:00");
 });
 
+test("a touch swipe starting on a task does not move it or open the editor", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.calendar.addTask("Swipe-safe task");
+  await ui.page.getByTestId("mobile-pagination").locator(".mobile-pagination-dot").nth(1).click();
+
+  const before = await ui.calendar.blockMetrics(0);
+  await ui.page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>('[data-testid="calendar-block"]');
+    if (!block) throw new Error("Calendar block not found.");
+    const init = (type: string, clientX: number, clientY: number) => {
+      block.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        clientX,
+        clientY,
+        pointerId: 41,
+        pointerType: "touch",
+      }));
+    };
+    init("pointerdown", 120, 200);
+    init("pointermove", 220, 202);
+    init("pointerup", 220, 202);
+  });
+
+  const after = await ui.calendar.blockMetrics(0);
+  expect(after.text).toContain("08:00");
+  expect(after.top).toBe(before.top);
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+  await expect(ui.calendar.block(0)).toHaveCSS("touch-action", "manipulation");
+});
+
+test("leaving the schedule screen cancels a pending touch move", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.calendar.addTask("Navigation-safe task");
+  await ui.page.getByTestId("mobile-pagination").locator(".mobile-pagination-dot").nth(1).click();
+
+  await ui.page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>('[data-testid="calendar-block"]');
+    if (!block) throw new Error("Calendar block not found.");
+    block.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      clientX: 120,
+      clientY: 200,
+      pointerId: 43,
+      pointerType: "touch",
+    }));
+  });
+  await ui.page.getByTestId("mobile-screen-deck").evaluate((deck) => {
+    deck.scrollLeft = deck.clientWidth * 2;
+    deck.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await ui.page.waitForTimeout(420);
+  await ui.page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>('[data-testid="calendar-block"]');
+    if (!block) throw new Error("Calendar block not found.");
+    block.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      button: 0,
+      clientX: 120,
+      clientY: 300,
+      pointerId: 43,
+      pointerType: "touch",
+    }));
+    block.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true,
+      button: 0,
+      clientX: 120,
+      clientY: 300,
+      pointerId: 43,
+      pointerType: "touch",
+    }));
+  });
+
+  await ui.page.getByTestId("mobile-pagination").locator(".mobile-pagination-dot").nth(1).click();
+  await expect(ui.calendar.block(0)).toContainText("08:00");
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+});
+
+test("a held touch can arm vertical task movement without making scrolling move tasks", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  await ui.calendar.addTask("Held touch task");
+  await ui.page.getByTestId("mobile-pagination").locator(".mobile-pagination-dot").nth(1).click();
+
+  await ui.page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>('[data-testid="calendar-block"]');
+    if (!block) throw new Error("Calendar block not found.");
+    block.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      clientX: 120,
+      clientY: 200,
+      pointerId: 42,
+      pointerType: "touch",
+    }));
+  });
+  await ui.page.waitForTimeout(420);
+  await ui.page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>('[data-testid="calendar-block"]');
+    if (!block) throw new Error("Calendar block not found.");
+    const init = (type: string, clientY: number) => {
+      block.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        clientX: 120,
+        clientY,
+        pointerId: 42,
+        pointerType: "touch",
+      }));
+    };
+    init("pointermove", 300);
+    init("pointerup", 300);
+  });
+
+  await expect(ui.calendar.block(0)).toContainText("09:00");
+  await expect(ui.taskDetails.drawer).toHaveAttribute("aria-hidden", "true");
+});
+
 test("overlapping tasks are allowed and flagged", async ({ ui }) => {
   await ui.calendar.addTask();
   await ui.calendar.addTask();
@@ -315,7 +523,6 @@ test("short incidental overlaps do not force narrow columns", async ({ ui }) => 
             type: "task",
             startMinutes: 0,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -329,7 +536,6 @@ test("short incidental overlaps do not force narrow columns", async ({ ui }) => 
             type: "task",
             startMinutes: 55,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -343,7 +549,6 @@ test("short incidental overlaps do not force narrow columns", async ({ ui }) => 
             type: "task",
             startMinutes: 110,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -384,7 +589,6 @@ test("substantial overlaps keep distinct lanes regardless of storage order", asy
       type: "task",
       startMinutes: 210,
       hasExplicitStart: true,
-      elapsedMinutes: 0,
       completed: false,
       priorityScore: 50,
       urgency: 3,
@@ -402,7 +606,6 @@ test("substantial overlaps keep distinct lanes regardless of storage order", asy
       type: "task",
       startMinutes: 155,
       hasExplicitStart: true,
-      elapsedMinutes: 0,
       completed: false,
       priorityScore: 50,
       urgency: 3,
@@ -420,7 +623,6 @@ test("substantial overlaps keep distinct lanes regardless of storage order", asy
       type: "task",
       startMinutes: 150,
       hasExplicitStart: true,
-      elapsedMinutes: 0,
       completed: false,
       priorityScore: 50,
       urgency: 3,
@@ -499,7 +701,6 @@ test("dragged task keeps its lane while still overlapping its original cluster",
             type: "task",
             startMinutes: 135,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -517,7 +718,6 @@ test("dragged task keeps its lane while still overlapping its original cluster",
             type: "task",
             startMinutes: 135,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -535,7 +735,6 @@ test("dragged task keeps its lane while still overlapping its original cluster",
             type: "task",
             startMinutes: 135,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -583,7 +782,6 @@ test("dragging cannot create a fourth substantial overlap column", async ({ ui }
             type: "task",
             startMinutes: 135,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -597,7 +795,6 @@ test("dragging cannot create a fourth substantial overlap column", async ({ ui }
             type: "task",
             startMinutes: 135,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -611,7 +808,6 @@ test("dragging cannot create a fourth substantial overlap column", async ({ ui }
             type: "task",
             startMinutes: 135,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -625,7 +821,6 @@ test("dragging cannot create a fourth substantial overlap column", async ({ ui }
             type: "task",
             startMinutes: 300,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 50,
             urgency: 3,
@@ -699,7 +894,7 @@ test("task state persists after reload", async ({ ui }) => {
   expect(ui.consoleErrors).toEqual([]);
 });
 
-test("calendar block shows subtask completion progress", async ({ ui }) => {
+test("calendar block shows subtask completion", async ({ ui }) => {
   await ui.page.evaluate(() => {
     localStorage.setItem(
       "overrun_lite_state",
@@ -712,7 +907,6 @@ test("calendar block shows subtask completion progress", async ({ ui }) => {
             type: "task",
             startMinutes: 0,
             hasExplicitStart: true,
-            elapsedMinutes: 0,
             completed: false,
             priorityScore: 80,
             priorityReason: "House water system needs attention.",

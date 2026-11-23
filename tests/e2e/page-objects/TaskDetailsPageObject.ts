@@ -17,12 +17,6 @@ export class TaskDetailsPageObject {
     await this.save();
   }
 
-  async setProgress(minutes: number): Promise<void> {
-    await this.page.getByTestId("detail-advanced").locator("summary").click();
-    await this.page.getByTestId("detail-task-progress").fill(String(minutes));
-    await this.save();
-  }
-
   async markDone(): Promise<void> {
     await this.page.getByTestId("detail-toggle-done").click();
   }

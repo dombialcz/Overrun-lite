@@ -20,7 +20,7 @@ async function writeImportFile(name: string, payload: unknown): Promise<string> 
   return filePath;
 }
 
-test("backlog export downloads versioned JSON with task progress", async ({ ui }) => {
+test("backlog export strips legacy task progress from versioned JSON", async ({ ui }) => {
   await ui.page.evaluate(() => {
     localStorage.setItem("overrun_lite_state", JSON.stringify({
       tasks: [],
@@ -33,6 +33,7 @@ test("backlog export downloads versioned JSON with task progress", async ({ ui }
           startMinutes: 0,
           hasExplicitStart: true,
           elapsedMinutes: 20,
+          elapsedSeconds: 1200,
           completed: false,
           priorityScore: 75,
           priorityReason: "Important follow-up.",
@@ -56,10 +57,10 @@ test("backlog export downloads versioned JSON with task progress", async ({ ui }
   expect(payload.backlog).toHaveLength(1);
   expect(payload.backlog[0]).toMatchObject({
     name: "Exportable backlog item",
-    elapsedMinutes: 20,
     completed: false,
-    priorityScore: 75,
   });
+  expect(payload.backlog[0]).not.toHaveProperty("elapsedMinutes");
+  expect(payload.backlog[0]).not.toHaveProperty("elapsedSeconds");
   expect(payload.backlog[0].subtasks[0]).toMatchObject({ title: "Completed part", completed: true });
 });
 
@@ -75,7 +76,6 @@ test("backlog import accepts versioned exports incrementally and skips duplicate
           type: "task",
           startMinutes: 0,
           hasExplicitStart: true,
-          elapsedMinutes: 0,
           completed: false,
           priorityScore: 50,
           urgency: 3,
@@ -103,7 +103,7 @@ test("backlog import accepts versioned exports incrementally and skips duplicate
   await expect(ui.page.getByTestId("ai-status")).toHaveText("1 backlog item imported. 1 duplicate skipped.");
 });
 
-test("day snapshot import preserves completed and partial progress in backlog", async ({ ui }) => {
+test("day snapshot import preserves completion while dropping legacy task progress", async ({ ui }) => {
   const filePath = await writeImportFile("day-snapshot-import", {
     type: "overrun_day_snapshot",
     version: 1,
@@ -126,7 +126,7 @@ test("day snapshot import preserves completed and partial progress in backlog", 
       },
       {
         id: "partial-task",
-        name: "Partly done migration",
+        name: "Open migration",
         minutes: 90,
         type: "task",
         startMinutes: 150,
@@ -154,12 +154,14 @@ test("day snapshot import preserves completed and partial progress in backlog", 
     JSON.parse(localStorage.getItem("overrun_lite_state") || "{}")
   );
   const done = stored.backlog.find((task: { name: string }) => task.name === "Finished client report");
-  const partial = stored.backlog.find((task: { name: string }) => task.name === "Partly done migration");
+  const partial = stored.backlog.find((task: { name: string }) => task.name === "Open migration");
   expect(done.completed).toBe(true);
-  expect(done.elapsedMinutes).toBe(60);
+  expect(done).not.toHaveProperty("elapsedMinutes");
+  expect(done).not.toHaveProperty("elapsedSeconds");
   expect(done.sourceImportId).toBe("done-task");
   expect(partial.completed).toBe(false);
-  expect(partial.elapsedMinutes).toBe(35);
+  expect(partial).not.toHaveProperty("elapsedMinutes");
+  expect(partial).not.toHaveProperty("elapsedSeconds");
   expect(partial.sourceSnapshotId).toBe("2026-06-30T18:00:00.000Z");
 });
 
@@ -174,7 +176,6 @@ test("save day exports a full snapshot without mutating state", async ({ ui }) =
           type: "task",
           startMinutes: 30,
           hasExplicitStart: true,
-          elapsedMinutes: 20,
           completed: false,
           priorityScore: 60,
           urgency: 3,
@@ -199,7 +200,12 @@ test("save day exports a full snapshot without mutating state", async ({ ui }) =
   expect(payload.type).toBe("overrun_day_snapshot");
   expect(payload.tasks[0].name).toBe("Write standup notes");
   expect(payload.backlog[0].name).toBe("Backlog remains");
-  expect(payload.summary).toMatchObject({ plannedMinutes: 40, doneMinutes: 20, taskCount: 1 });
+  expect(payload.summary).toEqual({
+    plannedMinutes: 40,
+    taskCount: 1,
+    completedTasks: 0,
+    openTasks: 1,
+  });
 });
 
 test("clear backlog requires checkbox confirmation and preserves day and Done tasks", async ({ ui }) => {
@@ -215,7 +221,6 @@ test("clear backlog requires checkbox confirmation and preserves day and Done ta
           id: "done-backlog",
           name: "Keep completed history",
           minutes: 20,
-          elapsedMinutes: 20,
           completed: true,
           completedAt: "2026-07-25T12:00:00.000Z",
           subtasks: [],
@@ -251,7 +256,6 @@ test("day report downloads hour-by-hour plain text", async ({ ui }) => {
           type: "task",
           startMinutes: 60,
           hasExplicitStart: true,
-          elapsedMinutes: 60,
           completed: true,
           priorityScore: 80,
           priorityReason: "Needed for timesheets.",
@@ -268,7 +272,6 @@ test("day report downloads hour-by-hour plain text", async ({ ui }) => {
           type: "task",
           startMinutes: 150,
           hasExplicitStart: true,
-          elapsedMinutes: 15,
           completed: false,
           priorityScore: 60,
           urgency: 3,
@@ -286,11 +289,11 @@ test("day report downloads hour-by-hour plain text", async ({ ui }) => {
   const report = await readDownloadText(download);
   expect(report).toContain("Totals");
   expect(report).toContain("Planned: 1h 45m");
-  expect(report).toContain("Done: 1h 15m");
+  expect(report).toContain("Tasks: 1 completed, 1 open");
+  expect(report).not.toContain("Done:");
   expect(report).toContain("09:00-10:00 | Implement export flow");
   expect(report).toContain("10:30-11:15 | Review backlog import");
   expect(report).toContain("completed subtasks: Write import tests");
-  expect(report).toContain("Needed for timesheets.");
 });
 
 test("Google Calendar controls are removed", async ({ ui }) => {

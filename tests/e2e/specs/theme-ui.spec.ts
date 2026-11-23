@@ -256,6 +256,61 @@ test("mobile header stays compact and keeps every utility on screen", async ({ u
   expect(metrics.utilities.every((item) => item.left >= 0 && item.right <= metrics.clientWidth)).toBe(true);
 });
 
+test("mobile content exposes swipeable brain dump, schedule, and backlog screens", async ({ ui }) => {
+  await ui.page.setViewportSize({ width: 390, height: 844 });
+  const metrics = await ui.page.evaluate(() => {
+    const deck = document.querySelector<HTMLElement>(".mobile-screen-deck");
+    const screens = Array.from(document.querySelectorAll<HTMLElement>(".mobile-screen"));
+    if (!deck || screens.length !== 3) throw new Error("Mobile layout targets not found.");
+    return {
+      clientWidth: document.documentElement.clientWidth,
+      deckScrollWidth: deck.scrollWidth,
+      screens: screens.map((screen) => {
+        const rect = screen.getBoundingClientRect();
+        return { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width) };
+      }),
+    };
+  });
+
+  expect(metrics.deckScrollWidth).toBeGreaterThanOrEqual(metrics.clientWidth * 3 - 2);
+  expect(metrics.screens.every((screen) => screen.width >= metrics.clientWidth - 2)).toBe(true);
+  expect(metrics.screens.map((screen) => screen.left)).toEqual([
+    metrics.screens[0].left,
+    expect.any(Number),
+    expect.any(Number),
+  ]);
+  expect(metrics.screens[0].left).toBeLessThan(metrics.screens[1].left);
+  expect(metrics.screens[1].left).toBeLessThan(metrics.screens[2].left);
+  expect(metrics.screens.every((screen) => screen.top === metrics.screens[0].top)).toBe(true);
+
+  const pagination = ui.page.getByTestId("mobile-pagination");
+  const dots = pagination.locator(".mobile-pagination-dot");
+  await expect(pagination).toBeVisible();
+  await expect(dots).toHaveCount(3);
+  await expect(dots.nth(0)).toHaveAttribute("aria-current", "true");
+  await dots.nth(1).click();
+  await expect(dots.nth(1)).toHaveAttribute("aria-current", "true");
+
+  const scheduleHeight = await ui.page.evaluate(() => {
+    const deck = document.querySelector<HTMLElement>(".mobile-screen-deck");
+    const schedule = document.querySelector<HTMLElement>(".mobile-screen-schedule");
+    if (!deck || !schedule) throw new Error("Schedule screen target not found.");
+    return { deck: deck.clientHeight, screen: schedule.scrollHeight };
+  });
+  expect(Math.abs(scheduleHeight.deck - scheduleHeight.screen)).toBeLessThanOrEqual(2);
+
+  await dots.nth(2).click();
+  await expect(dots.nth(2)).toHaveAttribute("aria-current", "true");
+  const backlogHeight = await ui.page.evaluate(() => {
+    const deck = document.querySelector<HTMLElement>(".mobile-screen-deck");
+    const backlog = document.querySelector<HTMLElement>(".mobile-screen-backlog");
+    if (!deck || !backlog) throw new Error("Backlog screen target not found.");
+    return { deck: deck.clientHeight, screen: backlog.scrollHeight };
+  });
+  expect(Math.abs(backlogHeight.deck - backlogHeight.screen)).toBeLessThanOrEqual(2);
+  expect(backlogHeight.deck).toBeLessThan(scheduleHeight.deck);
+});
+
 async function readThemeColors(page: Page): Promise<ThemeColors> {
   const names = Array.from(new Set([...CONTRAST_PAIRS.flat(), ...EXTRA_THEME_COLORS]));
   return page.evaluate((variableNames) => {

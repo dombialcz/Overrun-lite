@@ -12,6 +12,22 @@ export class CalendarPageObject {
     return this.page.getByTestId("add-task");
   }
 
+  get activeList(): Locator {
+    return this.page.getByTestId("active-task-list");
+  }
+
+  get listViewTab(): Locator {
+    return this.page.getByTestId("list-view-tab");
+  }
+
+  get scheduleViewTab(): Locator {
+    return this.page.getByTestId("schedule-view-tab");
+  }
+
+  activeListItems(): Locator {
+    return this.page.getByTestId("active-task-item");
+  }
+
   blocks(): Locator {
     return this.page.getByTestId("calendar-block");
   }
@@ -22,6 +38,14 @@ export class CalendarPageObject {
 
   async openNewTask(): Promise<void> {
     await this.addTaskButton.click();
+  }
+
+  async showListView(): Promise<void> {
+    await this.listViewTab.click();
+  }
+
+  async showScheduleView(): Promise<void> {
+    await this.scheduleViewTab.click();
   }
 
   async addTask(title = "New task"): Promise<void> {

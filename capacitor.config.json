@@ -1,0 +1,9 @@
+{
+  "appId": "com.dombialcz.overrunlite",
+  "appName": "Overrun Lite",
+  "webDir": "dist",
+  "backgroundColor": "#fff8f0",
+  "ios": {
+    "contentInset": "always"
+  }
+}

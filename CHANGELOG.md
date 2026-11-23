@@ -7,6 +7,17 @@ All notable changes to Overrun Lite are documented here.
 ## [Unreleased]
 
 ### Added
+- **Active-task list view** — added Schedule and List tabs to the day panel on
+  web and mobile, with a chronological, compact list that opens the existing
+  task editor, stays synchronized with day-plan changes, and remembers the
+  device's last selected view.
+- **Mobile schedule gesture ownership** — ordinary swipes and vertical scrolling
+  no longer move tasks accidentally; hold a task briefly before dragging it
+  vertically on touch devices, while desktop drag and resize remain direct.
+- **iOS native shell scaffold** — added a reproducible Capacitor 8.5.3 mobile
+  asset build and generated iOS project using the stable
+  `com.dombialcz.overrunlite` bundle identifier and `Overrun Lite` display
+  name; Android remains queued for the next iteration.
 - **English and Polish interface** — account activation and Settings now switch the complete user-facing experience immediately, account locale is stored securely in Supabase, guest selection remains session-only, and AI drafts plus text exports follow the active language.
 - **Quick task focus gestures** — double-clicking a calendar task, or double-tapping it on touch screens, now starts its focus highlight; repeating the gesture stops it.
 - **Empty-day AI scheduling** — brain dumps can now propose reviewable day-planner destinations and start times when the calendar is empty, with an eight-hour cap that keeps overflow in the backlog.
@@ -30,21 +41,51 @@ All notable changes to Overrun Lite are documented here.
 - **Local LLM eval notes** — documented open questions for a future real local-model evaluation harness.
 - **Manual local LLM eval** — added an advisory command for checking whether a running local model returns parseable task-breakdown output.
 - **Eval response inspection** — local LLM evals now show raw response excerpts, can save failed raw outputs, and can emit JSON reports.
-- **Versioned planner exports** — backlog and day exports now use explicit JSON envelopes and day snapshots preserve task progress.
+- **Versioned planner exports** — backlog and day exports now use explicit JSON envelopes and day snapshots preserve completion state and subtasks.
 - **Day report export** — added a plain text hour-by-hour report for timesheets and standup notes.
 - **Clear backlog confirmation** — added an explicit checkbox-confirmed workflow for clearing only backlog items.
 
+### Fixed
+- **Desktop planner columns** — keep the backlog beside the Schedule/List day
+  panel on wide screens while preserving stacked and swipeable narrow layouts.
+
 ### Changed
+- **Simpler task state** — removed task-level partial progress and done-minute
+  controls from the editor, persistence, sync, imports, exports, reports,
+  agent prompts, and every LLM request JSON; legacy saved values are discarded
+  safely during normalization while binary Done state and subtask checkboxes
+  remain available.
+- **Schedule-first planning** — removed priority, urgency, impact, and the
+  mobile status/focus strip; AI reviews and planner JSON now center on
+  destinations, times, durations, and subtasks. Legacy saved and
+  imported fields remain readable but are no longer written back out.
+- **Mobile swipe navigation** — narrow screens now present brain dump, day
+  schedule, and backlog as three swipeable scroll-snap screens with floating
+  theme-aware pagination dots, per-screen vertical height, and bottom breathing
+  room; desktop keeps its grid layout and the iOS native background matches
+  the light theme base.
+- **Mobile task editor dismissal** — task creation and editing now use a
+  bottom sheet on narrow screens with a visible grabber, sticky actions,
+  backdrop-tap dismissal, and swipe-down-to-close gestures; desktop retains
+  the side drawer.
+- **Stable mobile focus scale** — text-entry and select controls keep a 16px
+  focus size on narrow screens, preventing iOS WebView auto-zoom without
+  disabling accessibility zoom.
+- **Task editor validation** — Create now explains when the task title is
+  missing, and the editor blocks another subtask until the previous subtask
+  has a title.
+- **Mobile-first section flow** — narrow layouts now keep the brain dump above
+  the schedule and move the backlog below it, add iOS safe-area spacing, and
+  give the available sign-in action a clearer primary treatment.
 - **Time-aware AI scheduling** — brain-dump drafts now prioritize user-stated clock times, interpret dayparts such as evening as flexible scheduling preferences, and normalize 12-hour times returned by weaker local models.
 - **Traceable themed AI review** — AI drafts now use compact theme-aware cards, contextual counts, sticky actions, accessible dialog focus, retained clarification history, visible refinement summaries, and preserved manual edits; task breakdown questions can be answered and refined before choosing whether to add or replace steps.
-- **Task-driven day header** — Replaced the arbitrary eight-hour countdown with a compact current/next-task summary and a direct Start/Stop focus action.
 - **Context-aware inbox emphasis** — Analyze dump remains the primary action for an empty day, while Organize with current plan becomes primary whenever the day view contains tasks.
-- **Focus-only task activation** — Start and Stop now control a single highlighted day item, starting another item transfers the highlight, and the active choice survives refresh without advancing progress or completing the task automatically.
+- **Focus-only task activation** — Start and Stop now control a single highlighted day item, starting another item transfers the highlight, and the active choice survives refresh without tracking elapsed work or completing the task automatically.
 - **Extended day calendar** — the planner now spans 04:00 through 24:00 while preserving existing tasks at their saved clock times.
 - **Safer task deletion** — deleting an existing task or meeting from the editor now requires explicit confirmation.
 - **Safer invite operations** — `npm run user:invite` now prints only the Overrun wrapper URL, and operator guidance covers fresh-link regeneration plus Supabase `otp_expired`/403 diagnosis.
 - **Stable account reconciliation** — first-sync choices now run once when a browser adopts an account; repeated Supabase session confirmations and window focus changes keep using the connected account without reopening the local-versus-cloud prompt.
-- **Focused task drawer** — task edits now use Save or Cancel, keep subtasks prominent, fold priority/progress and AI assistance by default, and retain accessible controls on narrow screens.
+- **Focused task drawer** — task edits now use Save or Cancel, keep subtasks prominent, fold AI assistance by default, and retain accessible controls on narrow screens.
 - **Clear button interaction states** — primary, secondary, and danger buttons now use explicit theme-aware hover colors and washed, variant-specific disabled treatments instead of relying on a barely visible brightness change.
 - **Task-first color hierarchy** — light mode returns to flat white and floral-white surfaces with orange tasks as the main color event, while dark mode restores its quieter panels and uses controlled bright-maroon tasks; the inbox now has a theme-specific surface instead of sharing one treatment.
 - **More expressive semantic palette** — amethyst carries primary actions, grape supports selection, orange emphasizes light-theme tasks and attention, pale green signals completion, and the brown-red family covers danger, conflicts, and controlled dark-theme task emphasis.
@@ -52,7 +93,7 @@ All notable changes to Overrun Lite are documented here.
 - **Settings data hub** — day and backlog exports, imports, reports, and backlog clearing moved from the distant footer into a labeled Settings section; day export actions now use explicit names.
 - **Clearer AI capture flow** — AI usage now appears beside its controls, the inbox helper foregrounds review-before-apply, unavailable sign-in controls are hidden, and Context organize is labeled Organize with current plan.
 - **Streamlined AI brain dumps** — capture now favors immediately useful draft tasks, limits optional clarifications to two essential questions, keeps routine prerequisites out of task lists, and reserves detailed decomposition for the task-level “Help me get started” action.
-- **Completion flow** — the Done button, full progress, and timer completion now close and archive tasks immediately; backlog export preserves completion timestamps and clearing the backlog preserves Done history.
+- **Completion flow** — the Done button closes and archives tasks immediately; backlog export preserves completion timestamps and clearing the backlog preserves Done history.
 - **Hosted AI quota reservation** — fixed the atomic daily-usage reservation conflict clause and added sanitized server diagnostics for quota RPC failures.
 - **Invite activation callback** — invitation tokens are now consumed explicitly, removed from the address bar immediately, and covered by a token-shaped browser regression test before the password form opens.
 - **Secure AI proxy** — `/api/plan` no longer accepts anonymous requests or wildcard origins, keeps provider keys server-side, and returns stable authentication, quota, and availability errors.
@@ -60,13 +101,12 @@ All notable changes to Overrun Lite are documented here.
 - **Deployment hardening** — added restrictive content security, referrer, MIME-sniffing, frame, and permissions policies; the pinned Supabase browser client is vendored with integrity metadata.
 - **Backlog import** — imports are incremental, accept day snapshots and legacy arrays, and skip duplicates.
 - **Google Calendar import removed** — Google Calendar import controls and OAuth settings were removed from the app.
-- **Priority labels** — priority score (1–100) is now displayed as a human-readable label everywhere: `LOW` (1–25), `MEDIUM` (26–50), `HIGH` (51–75), `CRITICAL` (76–100). The task details drawer now shows a select dropdown instead of a number input.
 - **Completed task colour** — completed calendar blocks now turn green instead of dimming.
 - **Active timer colour + animation** — clicking Start on a task turns its calendar block yellow with a repeating pulse animation so it is easy to spot at a glance.
 - **Close drawer on Start / Split** — clicking the Start timer button or the Split button in the task details drawer now closes the drawer automatically, returning focus to the calendar.
 - **Brain dump character limit** — the brain dump textarea is capped at 1 800 characters. A live counter (`X / 1800`) is shown below the field and turns orange when approaching the limit.
 - **AI thinking overlay** — while the AI is analysing a brain dump, a 50 % translucent overlay covers the screen with an animated "Thinking…" message and a "DO NOT CLOSE THIS TAB" notice.
-- **Subtask progress tint** — as subtasks are completed the calendar block's background gradually shifts toward green proportional to progress (e.g. 2 of 4 subtasks done → 50 % green tint).
+- **Subtask completion tint** — as subtasks are completed the calendar block's background gradually shifts toward green according to the completed share (e.g. 2 of 4 subtasks done → 50 % green tint).
 - **Drag column stability fix** — when three or more tasks occupy the same hour, dragging any one of them no longer causes it to jump to a different column mid-drag. The block's lane position is now locked for the duration of the drag gesture.
 - **Overlap layout regressions** — fixed edge cases where partially overlapping tasks could overflow, stack on top of each other, or change columns depending on localStorage order.
 - **Incidental overlap display** — short overlaps now stay full-width with a small visual offset instead of forcing cramped narrow columns.
